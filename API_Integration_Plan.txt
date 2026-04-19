@@ -1,0 +1,123 @@
+================================================================================
+CareSchedule – Frontend / Backend API Integration Plan (TXT)
+================================================================================
+Scope: Wire the React frontend to the ASP.NET Core API using the same patterns
+as the existing login flow. Do not change approved UI components; only add or
+adjust integration code (api layer, hooks/data loading, mapping) under
+frontend/src/api and minimal glue in pages if required without altering layout.
+
+--------------------------------------------------------------------------------
+Current state (brief)
+--------------------------------------------------------------------------------
+Frontend
+  - Shared HTTP client: frontend/src/api/axios.ts (baseURL, Bearer token,
+    401/403 redirect).
+  - Auth: frontend/src/api/authApi.ts + AuthContext.tsx (login, logout, me).
+  - Role-based routes and guards already exist.
+  - Most dashboards and feature pages read from frontend/src/app/data/mockData.ts
+    (mock users, sites, services, appointments, shifts, leave, waitlist, charts).
+
+Backend
+  - Controllers under backend/CareSchedule.API/Controllers with mixed route
+    prefixes (e.g. auth, appointments, api/masterdata/*, api/admin/*, api/iam/*,
+    rosters, leave, waitlist, slots, etc.).
+  - Standard envelope: ApiResponse<T> (success, data, message, error, timestamp).
+
+Reference pattern (login – replicate for other domains)
+--------------------------------------------------------------------------------
+1. Add typed API functions in frontend/src/api/<domain>Api.ts (or extend a
+   single module per bounded context) using the shared `api` from axios.ts.
+2. Match HTTP method and path to the backend controller exactly.
+3. Unwrap responses: for endpoints returning ApiResponse<T>, read `response.data.data`
+   (and `response.data.message` / errors as needed). Align TypeScript types with
+   backend DTOs (names may be camelCase in JSON).
+4. Keep UI files visually identical: replace mock imports with data from
+   useEffect/useQuery (or small custom hooks) that call the API layer only.
+5. Handle loading and errors in existing UI slots where the component already
+   supports messages/spinners; if not, prefer a thin wrapper or parent state
+   without redesigning components.
+
+--------------------------------------------------------------------------------
+Phased approach (step by step)
+--------------------------------------------------------------------------------
+
+Phase 0 – Inventory and contract alignment
+  - List every screen that imports mockData (admin, frontdesk, operations,
+    provider, patient, staff, legacy *Dashboard.tsx files).
+  - For each screen, map required user actions to one or more backend endpoints
+    (see controller list in BACKEND_INTEGRATION_NOTES.txt if needed).
+  - Confirm JWT roles on backend [Authorize(Roles = "...")] match frontend role
+    strings (e.g. FrontDesk vs Frontdesk) to avoid 403 after integration.
+
+Phase 1 – Shared API utilities (frontend only)
+  - Add a small helper type for ApiResponse<T> and optional unwrap function to
+    avoid repeating `.data.data` everywhere.
+  - Optionally centralize query key constants if using TanStack Query later
+    (only if already in package.json; do not add new UI libraries without approval).
+
+Phase 2 – Auth session hardening
+  - Ensure login, logout, and post-login “who am I” behavior match backend
+    contracts (see BACKEND_INTEGRATION_NOTES.txt for any /auth/me gap).
+  - Keep token in localStorage and interceptor behavior as today unless
+    security review requests otherwise.
+
+Phase 3 – Master data and IAM (typically Admin)
+  - Integrate: sites, rooms, services, providers, users (api/masterdata/* and
+    api/iam/users), provider-services linkage as needed by admin screens.
+  - Map DTO fields to the shapes the UI already expects, in the API layer or
+    thin mappers (not by changing JSX structure).
+
+Phase 4 – Booking and appointments (Front desk / Patient / Provider)
+  - Appointments: search, get by id, book, reschedule, cancel, status transitions
+    as exposed by AppointmentsController.
+  - Slots / availability: SlotsController, Availability* controllers as needed
+    by booking flows.
+  - Waitlist: WaitlistController for front desk waitlist page.
+
+Phase 5 – Check-in and queue (Front desk)
+  - Check-in search and status transitions via check-in endpoints (verify routes
+    in notes file).
+  - Align queue/dashboard appointment lists with appointment search filters
+    (date, site, status).
+
+Phase 6 – Operations (rosters, leave, on-call)
+  - Rosters, roster-assignments, shift-templates, publish flow.
+  - Leave requests (approve/reject/cancel) and leave-impact if surfaced in UI.
+  - On-call coverage if the operations UI requires it.
+
+Phase 7 – Clinical / staff views (Nurse / Provider)
+  - Appointment lists and actions allowed for Provider/Patient/Nurse roles per
+    backend attributes.
+  - Check-ins or outcomes only if those pages are in scope for the role.
+
+Phase 8 – Rules, billing, reports, notifications (as needed)
+  - Capacity rules, SLA, charges, reports, notifications: integrate only where the
+    frontend has a corresponding screen or placeholder; otherwise defer.
+
+Phase 9 – Configuration and polish
+  - Move API base URL to Vite env (e.g. VITE_API_BASE_URL) for dev/stage/prod
+    without code changes per environment.
+  - Smoke-test each role end-to-end: login, navigate, list, mutate, refresh.
+  - Remove or gate mockData usage behind a “demo mode” flag only if product
+    asks; default should be live API.
+
+--------------------------------------------------------------------------------
+Definition of done (per feature area)
+--------------------------------------------------------------------------------
+  - No mockData import for that feature path; data loads from backend with token.
+  - Errors from ApiResponse fail paths or HTTP errors surface to the user without
+    breaking existing layout.
+  - Role mismatch or 401/403 behaves consistently with axios interceptor.
+
+--------------------------------------------------------------------------------
+File / folder discipline (frontend)
+--------------------------------------------------------------------------------
+  - New endpoints: prefer frontend/src/api/<feature>Api.ts mirroring authApi.ts.
+  - Do not edit shared UI primitives or restyle pages; only data source and
+    handlers change.
+  - Keep types close to API modules or a dedicated types file under src/api if
+    the type set grows.
+
+================================================================================
+End of plan
+================================================================================

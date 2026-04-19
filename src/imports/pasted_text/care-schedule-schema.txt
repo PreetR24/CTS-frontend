@@ -1,0 +1,424 @@
+-- ============================================================
+-- CareSchedule - SQL Server (T-SQL) Schema
+-- Compatible with: SQL Server Management Studio (SSMS)
+-- ============================================================
+ 
+-- Create and use a dedicated database
+-- Uncomment and change name if needed:
+-- CREATE DATABASE CareSchedule;
+-- GO
+-- USE CareSchedule;
+-- GO
+ 
+-- ============================================================
+-- 4.1 Identity & Access Management
+-- ============================================================
+ 
+CREATE TABLE [User] (
+    UserID      INT IDENTITY(1,1)   PRIMARY KEY,
+    Name        NVARCHAR(150)       NOT NULL,
+    Role        NVARCHAR(50)        NOT NULL CHECK (Role IN ('Patient','FrontDesk','Provider','Nurse','Tech','Operations','Admin')),
+    Email       NVARCHAR(255)       NOT NULL UNIQUE,
+    Phone       NVARCHAR(20),
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive','Locked'))
+);
+GO
+ 
+CREATE TABLE AuditLog (
+    AuditID     INT IDENTITY(1,1)   PRIMARY KEY,
+    UserID      INT                 NULL REFERENCES [User](UserID) ON DELETE SET NULL,
+    Action      NVARCHAR(100)       NOT NULL,
+    Resource    NVARCHAR(100)       NOT NULL,
+    Timestamp   DATETIME2           NOT NULL DEFAULT GETDATE(),
+    Metadata    NVARCHAR(MAX)       NULL  -- Store JSON as string; use JSON functions in SQL Server 2016+
+);
+GO
+ 
+-- ============================================================
+-- 4.2 Sites, Providers & Services Master
+-- ============================================================
+ 
+CREATE TABLE Site (
+    SiteID      INT IDENTITY(1,1)   PRIMARY KEY,
+    Name        NVARCHAR(150)       NOT NULL,
+    AddressJSON NVARCHAR(MAX)       NULL,
+    Timezone    NVARCHAR(60)        NOT NULL DEFAULT 'UTC',
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE Room (
+    RoomID      INT IDENTITY(1,1)   PRIMARY KEY,
+    SiteID      INT                 NOT NULL REFERENCES Site(SiteID) ON DELETE CASCADE,
+    RoomName    NVARCHAR(100)       NOT NULL,
+    RoomType    NVARCHAR(30)        NOT NULL CHECK (RoomType IN ('Exam','Procedure','Triage')),
+    AttributesJSON NVARCHAR(MAX)    NULL,
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE Provider (
+    ProviderID  INT IDENTITY(1,1)   PRIMARY KEY,
+    Name        NVARCHAR(150)       NOT NULL,
+    Specialty   NVARCHAR(100),
+    Credentials NVARCHAR(200),
+    ContactInfo NVARCHAR(200),
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE Service (
+    ServiceID           INT IDENTITY(1,1) PRIMARY KEY,
+    Name                NVARCHAR(150)   NOT NULL,
+    VisitType           NVARCHAR(30)    NOT NULL CHECK (VisitType IN ('New','FollowUp','Procedure')),
+    DefaultDurationMin  INT             NOT NULL DEFAULT 30,
+    BufferBeforeMin     INT             NOT NULL DEFAULT 0,
+    BufferAfterMin      INT             NOT NULL DEFAULT 0,
+    Status              NVARCHAR(20)    NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE ProviderService (
+    PSID                    INT IDENTITY(1,1) PRIMARY KEY,
+    ProviderID              INT         NOT NULL REFERENCES Provider(ProviderID) ON DELETE CASCADE,
+    ServiceID               INT         NOT NULL REFERENCES Service(ServiceID),
+    CustomDurationMin       INT,
+    CustomBufferBeforeMin   INT,
+    CustomBufferAfterMin    INT,
+    Status                  NVARCHAR(20) NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive')),
+    UNIQUE (ProviderID, ServiceID)
+);
+GO
+ 
+-- ============================================================
+-- 4.3 Availability, Templates & Exceptions
+-- ============================================================
+ 
+CREATE TABLE AvailabilityTemplate (
+    TemplateID      INT IDENTITY(1,1)   PRIMARY KEY,
+    ProviderID      INT                 NOT NULL REFERENCES Provider(ProviderID) ON DELETE CASCADE,
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    DayOfWeek       TINYINT             NOT NULL CHECK (DayOfWeek BETWEEN 0 AND 6),
+    StartTime       TIME                NOT NULL,
+    EndTime         TIME                NOT NULL,
+    SlotDurationMin INT                 NOT NULL DEFAULT 15,
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE AvailabilityBlock (
+    BlockID     INT IDENTITY(1,1)   PRIMARY KEY,
+    ProviderID  INT                 NOT NULL REFERENCES Provider(ProviderID) ON DELETE CASCADE,
+    SiteID      INT                 NOT NULL REFERENCES Site(SiteID),
+    Date        DATE                NOT NULL,
+    StartTime   TIME                NOT NULL,
+    EndTime     TIME                NOT NULL,
+    Reason      NVARCHAR(255),
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Cancelled'))
+);
+GO
+ 
+CREATE TABLE Blackout (
+    BlackoutID  INT IDENTITY(1,1)   PRIMARY KEY,
+    SiteID      INT                 NOT NULL REFERENCES Site(SiteID) ON DELETE CASCADE,
+    StartDate   DATE                NOT NULL,
+    EndDate     DATE                NOT NULL,
+    Reason      NVARCHAR(255),
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE PublishedSlot (
+    PubSlotID   INT IDENTITY(1,1)   PRIMARY KEY,
+    ProviderID  INT                 NOT NULL REFERENCES Provider(ProviderID) ON DELETE CASCADE,
+    SiteID      INT                 NOT NULL REFERENCES Site(SiteID),
+    ServiceID   INT                 NOT NULL REFERENCES Service(ServiceID),
+    SlotDate    DATE                NOT NULL,
+    StartTime   TIME                NOT NULL,
+    EndTime     TIME                NOT NULL,
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Open' CHECK (Status IN ('Open','Held','Closed'))
+);
+GO
+ 
+-- ============================================================
+-- 4.4 Appointment Booking & Queue
+-- ============================================================
+ 
+CREATE TABLE Appointment (
+    AppointmentID   INT IDENTITY(1,1)   PRIMARY KEY,
+    PatientID       INT                 NOT NULL REFERENCES [User](UserID),
+    ProviderID      INT                 NOT NULL REFERENCES Provider(ProviderID),
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    ServiceID       INT                 NOT NULL REFERENCES Service(ServiceID),
+    RoomID          INT                 NULL REFERENCES Room(RoomID) ON DELETE SET NULL,
+    SlotDate        DATE                NOT NULL,
+    StartTime       TIME                NOT NULL,
+    EndTime         TIME                NOT NULL,
+    BookingChannel  NVARCHAR(30)        NOT NULL CHECK (BookingChannel IN ('FrontDesk','Portal','CallCenter')),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Booked' CHECK (Status IN ('Booked','CheckedIn','Completed','Cancelled','NoShow'))
+);
+GO
+ 
+CREATE TABLE AppointmentChange (
+    ChangeID        INT IDENTITY(1,1)   PRIMARY KEY,
+    AppointmentID   INT                 NOT NULL REFERENCES Appointment(AppointmentID) ON DELETE CASCADE,
+    ChangeType      NVARCHAR(30)        NOT NULL CHECK (ChangeType IN ('Reschedule','Cancel','Status')),
+    OldValuesJSON   NVARCHAR(MAX),
+    NewValuesJSON   NVARCHAR(MAX),
+    ChangedBy       INT                 NULL REFERENCES [User](UserID) ON DELETE SET NULL,
+    ChangedDate     DATETIME2           NOT NULL DEFAULT GETDATE(),
+    Reason          NVARCHAR(255)
+);
+GO
+ 
+CREATE TABLE Waitlist (
+    WaitID          INT IDENTITY(1,1)   PRIMARY KEY,
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    ProviderID      INT                 NOT NULL REFERENCES Provider(ProviderID),
+    ServiceID       INT                 NOT NULL REFERENCES Service(ServiceID),
+    PatientID       INT                 NOT NULL REFERENCES [User](UserID),
+    Priority        NVARCHAR(10)        NOT NULL DEFAULT 'Normal' CHECK (Priority IN ('High','Normal')),
+    RequestedDate   DATE                NOT NULL,
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Open' CHECK (Status IN ('Open','Filled','Expired'))
+);
+GO
+ 
+CREATE TABLE CheckIn (
+    CheckInID       INT IDENTITY(1,1)   PRIMARY KEY,
+    AppointmentID   INT                 NOT NULL UNIQUE REFERENCES Appointment(AppointmentID) ON DELETE CASCADE,
+    TokenNo         NVARCHAR(20),
+    CheckInTime     DATETIME2           NOT NULL DEFAULT GETDATE(),
+    RoomAssigned    INT                 NULL REFERENCES Room(RoomID) ON DELETE SET NULL,
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Waiting' CHECK (Status IN ('Waiting','InRoom','WithProvider','Done'))
+);
+GO
+ 
+CREATE TABLE Outcome (
+    OutcomeID       INT IDENTITY(1,1)   PRIMARY KEY,
+    AppointmentID   INT                 NOT NULL UNIQUE REFERENCES Appointment(AppointmentID) ON DELETE CASCADE,
+    Outcome         NVARCHAR(20)        NOT NULL CHECK (Outcome IN ('Completed','NoShow','Cancelled')),
+    Notes           NVARCHAR(MAX),
+    MarkedBy        INT                 NULL REFERENCES [User](UserID) ON DELETE SET NULL,
+    MarkedDate      DATETIME2           NOT NULL DEFAULT GETDATE()
+);
+GO
+ 
+-- ============================================================
+-- 4.5 Clinic Calendar & Room Management
+-- ============================================================
+ 
+CREATE TABLE ResourceHold (
+    HoldID          INT IDENTITY(1,1)   PRIMARY KEY,
+    ResourceType    NVARCHAR(20)        NOT NULL CHECK (ResourceType IN ('Room','Device')),
+    ResourceID      INT                 NOT NULL,
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    StartTime       DATETIME2           NOT NULL,
+    EndTime         DATETIME2           NOT NULL,
+    Reason          NVARCHAR(255),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Held' CHECK (Status IN ('Held','Released'))
+);
+GO
+ 
+CREATE TABLE CalendarEvent (
+    EventID         INT IDENTITY(1,1)   PRIMARY KEY,
+    EntityType      NVARCHAR(20)        NOT NULL CHECK (EntityType IN ('Appointment','Block','Blackout','Hold')),
+    EntityID        INT                 NOT NULL,
+    ProviderID      INT                 NULL REFERENCES Provider(ProviderID) ON DELETE SET NULL,
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    RoomID          INT                 NULL REFERENCES Room(RoomID) ON DELETE SET NULL,
+    StartTime       DATETIME2           NOT NULL,
+    EndTime         DATETIME2           NOT NULL,
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Active'
+);
+GO
+ 
+-- ============================================================
+-- 4.6 Shift Planning & Roster
+-- ============================================================
+ 
+CREATE TABLE ShiftTemplate (
+    ShiftTemplateID INT IDENTITY(1,1)   PRIMARY KEY,
+    Name            NVARCHAR(100)       NOT NULL,
+    StartTime       TIME                NOT NULL,
+    EndTime         TIME                NOT NULL,
+    BreakMinutes    INT                 NOT NULL DEFAULT 0,
+    Role            NVARCHAR(50)        NOT NULL CHECK (Role IN ('Nurse','Tech','FrontDesk','Provider')),
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE Roster (
+    RosterID        INT IDENTITY(1,1)   PRIMARY KEY,
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    Department      NVARCHAR(100),
+    PeriodStart     DATE                NOT NULL,
+    PeriodEnd       DATE                NOT NULL,
+    PublishedBy     INT                 NULL REFERENCES [User](UserID) ON DELETE SET NULL,
+    PublishedDate   DATETIME2,
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Draft' CHECK (Status IN ('Draft','Published'))
+);
+GO
+ 
+CREATE TABLE RosterAssignment (
+    AssignmentID    INT IDENTITY(1,1)   PRIMARY KEY,
+    RosterID        INT                 NOT NULL REFERENCES Roster(RosterID) ON DELETE CASCADE,
+    UserID          INT                 NOT NULL REFERENCES [User](UserID),
+    ShiftTemplateID INT                 NOT NULL REFERENCES ShiftTemplate(ShiftTemplateID),
+    Date            DATE                NOT NULL,
+    Role            NVARCHAR(50),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Assigned' CHECK (Status IN ('Assigned','Swapped','Absent'))
+);
+GO
+ 
+CREATE TABLE OnCallCoverage (
+    OnCallID        INT IDENTITY(1,1)   PRIMARY KEY,
+    SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
+    Department      NVARCHAR(100),
+    Date            DATE                NOT NULL,
+    StartTime       TIME                NOT NULL,
+    EndTime         TIME                NOT NULL,
+    PrimaryUserID   INT                 NOT NULL REFERENCES [User](UserID),
+    BackupUserID    INT                 NULL REFERENCES [User](UserID),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+-- ============================================================
+-- 4.7 Leave & Time-Off Management
+-- ============================================================
+ 
+CREATE TABLE LeaveRequest (
+    LeaveID         INT IDENTITY(1,1)   PRIMARY KEY,
+    UserID          INT                 NOT NULL REFERENCES [User](UserID),
+    LeaveType       NVARCHAR(30)        NOT NULL CHECK (LeaveType IN ('Vacation','Sick','CME','Other')),
+    StartDate       DATE                NOT NULL,
+    EndDate         DATE                NOT NULL,
+    Reason          NVARCHAR(MAX),
+    SubmittedDate   DATETIME2           NOT NULL DEFAULT GETDATE(),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Pending' CHECK (Status IN ('Pending','Approved','Rejected','Cancelled'))
+);
+GO
+ 
+CREATE TABLE LeaveImpact (
+    ImpactID        INT IDENTITY(1,1)   PRIMARY KEY,
+    LeaveID         INT                 NOT NULL REFERENCES LeaveRequest(LeaveID) ON DELETE CASCADE,
+    ImpactType      NVARCHAR(30)        NOT NULL CHECK (ImpactType IN ('Appointments','Roster','Room')),
+    ImpactJSON      NVARCHAR(MAX),
+    ResolvedBy      INT                 NULL REFERENCES [User](UserID) ON DELETE SET NULL,
+    ResolvedDate    DATETIME2,
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Open' CHECK (Status IN ('Open','Resolved'))
+);
+GO
+ 
+-- ============================================================
+-- 4.8 Capacity & Utilization Rules
+-- ============================================================
+ 
+CREATE TABLE CapacityRule (
+    RuleID              INT IDENTITY(1,1) PRIMARY KEY,
+    Scope               NVARCHAR(20)    NOT NULL CHECK (Scope IN ('Provider','Service','Site')),
+    MaxApptsPerDay      INT,
+    MaxConcurrentRooms  INT,
+    BufferMin           INT             NOT NULL DEFAULT 0,
+    EffectiveFrom       DATE            NOT NULL,
+    EffectiveTo         DATE,
+    Status              NVARCHAR(20)    NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+CREATE TABLE SLA (
+    SLAID       INT IDENTITY(1,1)   PRIMARY KEY,
+    Scope       NVARCHAR(20)        NOT NULL CHECK (Scope IN ('Service','Provider','Site')),
+    Metric      NVARCHAR(30)        NOT NULL CHECK (Metric IN ('WaitTime','Turnaround')),
+    TargetValue INT                 NOT NULL,
+    Unit        NVARCHAR(20)        NOT NULL DEFAULT 'Minutes',
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+-- ============================================================
+-- 4.9 Notifications & Reminders
+-- ============================================================
+ 
+CREATE TABLE Notification (
+    NotificationID  INT IDENTITY(1,1)   PRIMARY KEY,
+    UserID          INT                 NOT NULL REFERENCES [User](UserID),
+    Message         NVARCHAR(MAX)       NOT NULL,
+    Category        NVARCHAR(30)        NOT NULL CHECK (Category IN ('Appointment','Change','Waitlist','Roster','Leave')),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Unread' CHECK (Status IN ('Unread','Read','Dismissed')),
+    CreatedDate     DATETIME2           NOT NULL DEFAULT GETDATE()
+);
+GO
+ 
+CREATE TABLE ReminderSchedule (
+    RemindID        INT IDENTITY(1,1)   PRIMARY KEY,
+    AppointmentID   INT                 NOT NULL REFERENCES Appointment(AppointmentID) ON DELETE CASCADE,
+    RemindOffsetMin INT                 NOT NULL,
+    Channel         NVARCHAR(20)        NOT NULL CHECK (Channel IN ('InApp','SMS','Email')),
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Pending' CHECK (Status IN ('Pending','Sent','Cancelled'))
+);
+GO
+ 
+-- ============================================================
+-- 4.10 Analytics & Operational Reports
+-- ============================================================
+ 
+CREATE TABLE OpsReport (
+    ReportID        INT IDENTITY(1,1)   PRIMARY KEY,
+    Scope           NVARCHAR(100)       NOT NULL,
+    MetricsJSON     NVARCHAR(MAX),
+    GeneratedDate   DATETIME2           NOT NULL DEFAULT GETDATE()
+);
+GO
+ 
+-- ============================================================
+-- 4.11 Billing & References (Optional)
+-- ============================================================
+ 
+CREATE TABLE ChargeRef (
+    ChargeRefID     INT IDENTITY(1,1)   PRIMARY KEY,
+    AppointmentID   INT                 NOT NULL REFERENCES Appointment(AppointmentID),
+    ServiceID       INT                 NOT NULL REFERENCES Service(ServiceID),
+    ProviderID      INT                 NOT NULL REFERENCES Provider(ProviderID),
+    Amount          DECIMAL(10,2)       NOT NULL,
+    Currency        CHAR(3)             NOT NULL DEFAULT 'INR',
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'Open' CHECK (Status IN ('Open','Exported','Cancelled'))
+);
+GO
+ 
+-- ============================================================
+-- 4.12 Admin & Configuration
+-- ============================================================
+ 
+CREATE TABLE SystemConfig (
+    ConfigID    INT IDENTITY(1,1)   PRIMARY KEY,
+    [Key]       NVARCHAR(100)       NOT NULL UNIQUE,
+    Value       NVARCHAR(MAX)       NOT NULL,
+    Scope       NVARCHAR(20)        NOT NULL DEFAULT 'Global' CHECK (Scope IN ('Global','Site')),
+    UpdatedBy   INT                 NULL REFERENCES [User](UserID) ON DELETE SET NULL,
+    UpdatedDate DATETIME2           NOT NULL DEFAULT GETDATE()
+);
+GO
+ 
+CREATE TABLE Holiday (
+    HolidayID   INT IDENTITY(1,1)   PRIMARY KEY,
+    SiteID      INT                 NOT NULL REFERENCES Site(SiteID) ON DELETE CASCADE,
+    Date        DATE                NOT NULL,
+    Description NVARCHAR(255),
+    Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
+);
+GO
+ 
+-- ============================================================
+-- Indexes
+-- ============================================================
+CREATE INDEX idx_appointment_provider_date   ON Appointment(ProviderID, SlotDate);
+CREATE INDEX idx_appointment_patient         ON Appointment(PatientID);
+CREATE INDEX idx_appointment_site_date       ON Appointment(SiteID, SlotDate);
+CREATE INDEX idx_publishedslot_provider_date ON PublishedSlot(ProviderID, SlotDate);
+CREATE INDEX idx_notification_user           ON Notification(UserID, Status);
+CREATE INDEX idx_rosterassignment_user_date  ON RosterAssignment(UserID, Date);
+CREATE INDEX idx_leaverequest_user           ON LeaveRequest(UserID, Status);
+CREATE INDEX idx_auditlog_user_time          ON AuditLog(UserID, Timestamp);
+GO

@@ -1,0 +1,94 @@
+================================================================================
+Backend notes for API integration (read-only – no backend changes in this task)
+================================================================================
+These items are observations for future backend work if the frontend is wired
+as-is. Nothing in this file implies the repository has been modified.
+
+--------------------------------------------------------------------------------
+Auth / session
+--------------------------------------------------------------------------------
+- AuthController exposes: POST auth/login, POST auth/signup/patient, POST
+  auth/logout. There is no GET auth/me (or similar) in AuthController as
+  inspected; the frontend’s AuthContext uses meApi() calling GET /auth/me and
+  expects a shape with `result` (ApiResult). The backend standard envelope is
+  ApiResponse<T> with `data`, not `result`. Recommendation: add a GET auth/me
+  (or align frontend to an existing user profile endpoint) returning
+  ApiResponse<{ userId, role, landingPage, ... }> and update frontend types only
+  to match—OR document the canonical endpoint if it already exists elsewhere.
+
+- Confirm JSON property naming: ApiResponse and DTOs use PascalCase in C#;
+  ASP.NET Core typically serializes with camelCase by default. Verify actual
+  JSON for login vs frontend LoginResponse interface (nested `data`).
+
+--------------------------------------------------------------------------------
+CORS and HTTPS
+--------------------------------------------------------------------------------
+- Program.cs uses UseHttpsRedirection; the frontend axios baseURL is
+  http://localhost:5159. Ensure the API listens on HTTP for local dev or point
+  the frontend to HTTPS and configure CORS if the browser blocks cross-origin
+  requests (no UseCors was noted in the snippet reviewed—add if SPA runs on a
+  different origin/port).
+
+--------------------------------------------------------------------------------
+CheckInsController routing
+--------------------------------------------------------------------------------
+- CheckInsController has [ApiController] and [Authorize] but no class-level
+  [Route("...")]. Attribute routes on actions (e.g. "checkin/{appointmentId}",
+  "checkins") may not resolve as intended without a controller route template or
+  conventional routing configuration. Verify actual URLs via OpenAPI/Swagger or
+  runtime test; consider adding e.g. [Route("api/frontdesk")] or [Route("check-ins")]
+  for consistency with other controllers.
+
+--------------------------------------------------------------------------------
+Route prefix inconsistency (documentation / client generation)
+--------------------------------------------------------------------------------
+- Routes mix styles: some are bare (auth, appointments, rosters), some under
+  api/masterdata/*, api/admin/*, api/iam/*. Frontend client code must use exact
+  paths. Optional backend cleanup: unify under a single prefix (breaking change—
+  coordinate with frontend).
+
+--------------------------------------------------------------------------------
+Role name parity
+--------------------------------------------------------------------------------
+- Frontend login roles include labels like "FrontDesk", "Nurse", "Operations",
+  etc. Backend [Authorize(Roles = "...")] strings must match exactly (case-
+  sensitive). Audit all controllers before integration to avoid silent 403.
+
+--------------------------------------------------------------------------------
+Controller inventory (for mapping screens; not exhaustive of every DTO)
+--------------------------------------------------------------------------------
+- AppointmentsController – /appointments
+- AuthController – /auth
+- AvailabilityBlocksController – /availability-blocks
+- AvailabilityTemplatesController – /availability-templates
+- AuditLogsController – /api/iam/auditlogs
+- BlackoutsController – /blackouts
+- CalendarController – /calendar
+- CapacityRulesController – /capacity-rules
+- ChargesController – /charges
+- CheckInsController – verify full paths (see routing note)
+- HolidaysController – /api/admin/holidays
+- LeaveController – /leave
+- LeaveImpactController – /leave-impact
+- NotificationsController – /notifications
+- OnCallController – /oncall
+- OutcomesController – /outcome
+- ProviderServicesController – /api/masterdata (nested routes)
+- ProvidersController – /api/masterdata/providers
+- ReportsController – /reports
+- ResourceHoldsController – /resource-holds
+- RosterAssignmentsController – /roster-assignments
+- RostersController – /rosters
+- RoomsController – /api/masterdata/rooms
+- ServicesController – /api/masterdata/services
+- ShiftTemplatesController – /shift-templates
+- SitesController – /api/masterdata/sites
+- SlaController – /sla
+- SlotsController – /slots
+- SystemConfigsController – /api/admin/systemconfigs
+- UsersController – /api/iam/users
+- WaitlistController – /waitlist
+
+--------------------------------------------------------------------------------
+End of notes
+================================================================================
