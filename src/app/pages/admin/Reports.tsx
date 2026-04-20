@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from "recharts";
 import { Download, TrendingUp, TrendingDown } from "lucide-react";
-import { searchReports } from "../../../api/reportsApi";
+import { createReport, exportReports, getReportById, searchReports } from "../../../api/reportsApi";
 
 export default function AdminReports() {
   const [reportMetrics, setReportMetrics] = useState<Record<string, unknown>[]>([]);
+  const [reportIds, setReportIds] = useState<number[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -12,6 +13,7 @@ export default function AdminReports() {
       try {
         const reports = await searchReports({ scope: "Operations" });
         if (cancelled) return;
+        setReportIds(reports.map((r) => r.reportId));
         const metrics: Record<string, unknown>[] = [];
         for (const r of reports) {
           if (!r.metricsJson) continue;
@@ -31,17 +33,13 @@ export default function AdminReports() {
     };
   }, []);
 
-  const utilizationData = useMemo(
-    () =>
-      reportMetrics.map((m, i) => ({
-        name: String(m.day ?? m.name ?? `D${i + 1}`),
-        appointments: Number(m.appointments ?? 0),
-        capacity: Number(m.capacity ?? 0),
-      })),
-    [reportMetrics]
-  );
+  const utilizationData = reportMetrics.map((m, i) => ({
+    name: String(m.day ?? m.name ?? `D${i + 1}`),
+    appointments: Number(m.appointments ?? 0),
+    capacity: Number(m.capacity ?? 0),
+  }));
 
-  const appointmentStatusData = useMemo(() => {
+  const appointmentStatusData = (() => {
     const completed = reportMetrics.reduce((a, m) => a + Number(m.completed ?? 0), 0);
     const booked = reportMetrics.reduce((a, m) => a + Number(m.booked ?? 0), 0);
     const cancelled = reportMetrics.reduce((a, m) => a + Number(m.cancelled ?? 0), 0);
@@ -52,27 +50,36 @@ export default function AdminReports() {
       { name: "Cancelled", value: cancelled, color: "#f4a6a6" },
       { name: "No Show", value: noShow, color: "#f5d4c4" },
     ];
-  }, [reportMetrics]);
+  })();
 
-  const providerUtilization = useMemo(
-    () =>
-      reportMetrics
-        .filter((m) => typeof m.providerName === "string")
-        .map((m) => ({
-          name: String(m.providerName),
-          utilization: Number(m.utilization ?? 0),
-        })),
-    [reportMetrics]
-  );
+  const providerUtilization = reportMetrics
+    .filter((m) => typeof m.providerName === "string")
+    .map((m) => ({
+      name: String(m.providerName),
+      utilization: Number(m.utilization ?? 0),
+    }));
 
-  const noShowData = useMemo(
-    () =>
-      reportMetrics.map((m, i) => ({
-        month: String(m.month ?? `M${i + 1}`),
-        rate: Number(m.noShowRate ?? 0),
-      })),
-    [reportMetrics]
-  );
+  const avgUtilization = (() => {
+    const rows = providerUtilization.map((p) => p.utilization).filter((x) => Number.isFinite(x));
+    if (rows.length === 0) return 0;
+    return Math.round(rows.reduce((a, b) => a + b, 0) / rows.length);
+  })();
+
+  const avgWait = (() => {
+    const waits = reportMetrics.map((m) => Number(m.waitMinutes ?? 0)).filter((x) => x > 0);
+    if (waits.length === 0) return 0;
+    return Math.round(waits.reduce((a, b) => a + b, 0) / waits.length);
+  })();
+
+  const noShowData = reportMetrics.map((m, i) => ({
+    month: String(m.month ?? `M${i + 1}`),
+    rate: Number(m.noShowRate ?? 0),
+  }));
+
+  const avgNoShow = (() => {
+    if (noShowData.length === 0) return 0;
+    return Math.round(noShowData.reduce((a, b) => a + b.rate, 0) / noShowData.length);
+  })();
 
   return (
     <div className="p-6">
@@ -81,7 +88,18 @@ export default function AdminReports() {
           <h1 className="text-xl font-medium text-foreground">Analytics & Reports</h1>
           <p className="text-sm text-muted-foreground mt-1">Utilization, no-show rates, and performance metrics</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors text-sm">
+        <button
+          onClick={async () => {
+            const blob = await exportReports({ scope: "Operations" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "report.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors text-sm"
+        >
           <Download className="w-4 h-4" />
           Export Report
         </button>
@@ -93,7 +111,7 @@ export default function AdminReports() {
             <p className="text-xs text-muted-foreground">Avg Utilization Rate</p>
             <TrendingUp className="w-4 h-4 text-[#a9d4b8]" />
           </div>
-          <p className="text-2xl font-medium text-foreground">82.3%</p>
+          <p className="text-2xl font-medium text-foreground">{avgUtilization}%</p>
           <p className="text-xs text-[#a9d4b8] mt-1">+5.2% from last month</p>
         </div>
         <div className="bg-card rounded-xl border border-border p-5">
@@ -101,7 +119,7 @@ export default function AdminReports() {
             <p className="text-xs text-muted-foreground">No-Show Rate</p>
             <TrendingDown className="w-4 h-4 text-[#eb9d9d]" />
           </div>
-          <p className="text-2xl font-medium text-foreground">3.1%</p>
+          <p className="text-2xl font-medium text-foreground">{avgNoShow}%</p>
           <p className="text-xs text-[#eb9d9d] mt-1">-1.2% from last month</p>
         </div>
         <div className="bg-card rounded-xl border border-border p-5">
@@ -109,7 +127,7 @@ export default function AdminReports() {
             <p className="text-xs text-muted-foreground">Avg Wait Time</p>
             <TrendingDown className="w-4 h-4 text-[#a9d4b8]" />
           </div>
-          <p className="text-2xl font-medium text-foreground">12 min</p>
+          <p className="text-2xl font-medium text-foreground">{avgWait} min</p>
           <p className="text-xs text-[#a9d4b8] mt-1">-3 min from last month</p>
         </div>
       </div>
@@ -198,6 +216,29 @@ export default function AdminReports() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </div>
+      <div className="mt-6 flex gap-3">
+        <button
+          onClick={async () => {
+            await createReport({
+              scope: "Operations",
+              metricsJson: JSON.stringify({ generatedAt: new Date().toISOString(), source: "frontend-admin" }),
+            });
+          }}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
+        >
+          Generate Report
+        </button>
+        <button
+          onClick={async () => {
+            if (reportIds.length > 0) {
+              await getReportById(reportIds[0]);
+            }
+          }}
+          className="px-4 py-2 rounded-lg border border-border text-sm"
+        >
+          Fetch First Report
+        </button>
       </div>
     </div>
   );

@@ -1,12 +1,23 @@
 import { useEffect, useState } from "react";
 import { Plus, Search, Edit, Trash2, Activity } from "lucide-react";
-import { fetchServices } from "../../../api/masterdataApi";
+import {
+  activateService,
+  createService,
+  deactivateService,
+  fetchServices,
+  updateService,
+} from "../../../api/masterdataApi";
 import { mapServiceRow, type AdminServiceRow } from "../../../api/adminViewMappers";
 
 export default function AdminServices() {
   const [showModal, setShowModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [services, setServices] = useState<AdminServiceRow[]>([]);
+  const [editServiceId, setEditServiceId] = useState<number | null>(null);
+  const [editServiceName, setEditServiceName] = useState("");
+  const [newServiceName, setNewServiceName] = useState("");
+  const [newVisitType, setNewVisitType] = useState("New");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -33,6 +44,47 @@ export default function AdminServices() {
     s.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const openCreateModal = () => setShowModal(true);
+  const closeCreateModal = () => setShowModal(false);
+  const openEditModal = (serviceId: number, serviceName: string) => {
+    setEditServiceId(serviceId);
+    setEditServiceName(serviceName);
+    setShowEditModal(true);
+  };
+  const closeEditModal = () => setShowEditModal(false);
+
+  const deactivateServiceRow = async (serviceId: number) => {
+    await deactivateService(serviceId);
+    setServices((prev) =>
+      prev.map((s) => (s.id === serviceId ? { ...s, status: "Inactive" } : s))
+    );
+  };
+
+  const activateServiceRow = async (serviceId: number) => {
+    await activateService(serviceId);
+    setServices((prev) =>
+      prev.map((s) => (s.id === serviceId ? { ...s, status: "Active" } : s))
+    );
+  };
+
+  const createServiceFromModal = async () => {
+    if (!newServiceName.trim() || !newVisitType.trim()) return;
+    const created = await createService({ name: newServiceName.trim(), visitType: newVisitType.trim() });
+    setServices((prev) => [...prev, mapServiceRow(created)]);
+    setNewServiceName("");
+    setNewVisitType("New");
+    setShowModal(false);
+  };
+
+  const saveEditedService = async () => {
+    if (editServiceId == null || !editServiceName.trim()) return;
+    await updateService(editServiceId, { name: editServiceName.trim() });
+    setServices((prev) =>
+      prev.map((s) => (s.id === editServiceId ? { ...s, name: editServiceName.trim() } : s))
+    );
+    setShowEditModal(false);
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -54,7 +106,7 @@ export default function AdminServices() {
             />
           </div>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -107,11 +159,23 @@ export default function AdminServices() {
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button className="p-2 hover:bg-secondary rounded-lg transition-colors">
+                      <button
+                        className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                        onClick={() => openEditModal(service.id, service.name)}
+                      >
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
                       <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2
+                          className="w-4 h-4 text-destructive"
+                          onClick={() => void deactivateServiceRow(service.id)}
+                        />
+                      </button>
+                      <button
+                        onClick={() => void activateServiceRow(service.id)}
+                        className="text-xs px-2 py-1 border border-border rounded"
+                      >
+                        Activate
                       </button>
                     </div>
                   </td>
@@ -139,12 +203,18 @@ export default function AdminServices() {
                 <input
                   type="text"
                   placeholder="e.g., General Consultation"
+                  value={newServiceName}
+                  onChange={(e) => setNewServiceName(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Visit Type</label>
-                <select className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary">
+                <select
+                  value={newVisitType}
+                  onChange={(e) => setNewVisitType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
                   <option>New</option>
                   <option>FollowUp</option>
                   <option>Procedure</option>
@@ -171,16 +241,44 @@ export default function AdminServices() {
             </div>
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeCreateModal}
                 className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => void createServiceFromModal()}
                 className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
               >
                 Create Service
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showEditModal && editServiceId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
+            <h3 className="text-base font-medium text-foreground mb-4">Edit Service</h3>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Service Name</label>
+            <input
+              type="text"
+              value={editServiceName}
+              onChange={(e) => setEditServiceName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeEditModal}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void saveEditedService()}
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+              >
+                Save
               </button>
             </div>
           </div>

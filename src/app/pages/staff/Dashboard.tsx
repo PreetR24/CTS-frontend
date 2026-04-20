@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { StatCard } from "../../components/StatCard";
 import { Calendar, Clock, Users, CheckCircle } from "lucide-react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
 import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
 import { searchOnCall, searchRosterAssignments } from "../../../api/operationsApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type AppointmentRow = {
   id: number;
@@ -40,7 +40,7 @@ export default function StaffDashboard() {
         const today = new Date().toISOString().slice(0, 10);
         const [me, users, providers, services, list, assignments, onCalls] = await Promise.all([
           meApi(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchProviders(),
           fetchServices(),
           searchAppointments({ date: today }),
@@ -76,19 +76,15 @@ export default function StaffDashboard() {
     };
   }, []);
 
-  const todayAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: patientNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        time: to12Hour(apt.startTime),
-        status: apt.status,
-        date: apt.slotDate,
-      })),
-    [appointments, patientNames, providerNames, serviceNames]
-  );
+  const todayAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    time: to12Hour(apt.startTime),
+    status: apt.status,
+    date: apt.slotDate,
+  }));
 
   return (
     <div className="p-6">

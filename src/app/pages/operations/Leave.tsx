@@ -1,20 +1,34 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, X, Calendar, AlertCircle } from "lucide-react";
 import {
   approveLeave,
+  getLeaveImpacts,
+  getLeaveRequestById,
   rejectLeave,
   searchLeaveRequests,
   type LeaveRequestDto,
 } from "../../../api/operationsApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
+import { getLeaveImpactById, resolveLeaveImpact, searchLeaveImpactsByLeaveId } from "../../../api/operationsPlanningApi";
+import { meApi } from "../../../api/authApi";
 
 export default function OperationsLeave() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestDto[]>([]);
   const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
+  const [impactCountByLeave, setImpactCountByLeave] = useState<Map<number, number>>(new Map());
+  const [impactIdsByLeave, setImpactIdsByLeave] = useState<Map<number, number[]>>(new Map());
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = async () => {
     const list = await searchLeaveRequests();
     setLeaveRequests(list);
+    const impactLists = await Promise.all(
+      list.map((l) =>
+        searchLeaveImpactsByLeaveId(l.leaveId).catch(() => [])
+      )
+    );
+    setImpactCountByLeave(new Map(list.map((l, idx) => [l.leaveId, impactLists[idx].length])));
+    setImpactIdsByLeave(new Map(list.map((l, idx) => [l.leaveId, impactLists[idx].map((x) => x.impactId)])));
   };
 
   useEffect(() => {
@@ -23,11 +37,17 @@ export default function OperationsLeave() {
       try {
         const [leaveList, users] = await Promise.all([
           searchLeaveRequests(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
         ]);
         if (cancelled) return;
         setLeaveRequests(leaveList);
         setUserNames(new Map(users.map((u) => [u.userId, u.name])));
+        const impactLists = await Promise.all(
+          leaveList.map((l) => searchLeaveImpactsByLeaveId(l.leaveId).catch(() => []))
+        );
+        if (cancelled) return;
+        setImpactCountByLeave(new Map(leaveList.map((l, idx) => [l.leaveId, impactLists[idx].length])));
+        setImpactIdsByLeave(new Map(leaveList.map((l, idx) => [l.leaveId, impactLists[idx].map((x) => x.impactId)])));
       } catch {
         if (!cancelled) setLeaveRequests([]);
       }
@@ -37,19 +57,15 @@ export default function OperationsLeave() {
     };
   }, []);
 
-  const viewRows = useMemo(
-    () =>
-      leaveRequests.map((l) => ({
-        id: l.leaveId,
-        staff: userNames.get(l.userId) ?? `User #${l.userId}`,
-        type: l.leaveType,
-        startDate: l.startDate,
-        endDate: l.endDate,
-        status: l.status,
-        impactedAppts: 0,
-      })),
-    [leaveRequests, userNames]
-  );
+  const viewRows = leaveRequests.map((l) => ({
+    id: l.leaveId,
+    staff: userNames.get(l.userId) ?? "Team Member",
+    type: l.leaveType,
+    startDate: l.startDate,
+    endDate: l.endDate,
+    status: l.status,
+    impactedAppts: impactCountByLeave.get(l.leaveId) ?? 0,
+  }));
 
   const getStatusColor = (status: string) => {
     switch(status) {
@@ -65,6 +81,7 @@ export default function OperationsLeave() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Leave Management</h1>
         <p className="text-sm text-muted-foreground mt-1">Review and approve staff leave requests</p>
+        {notice && <p className="text-sm text-primary mt-2">{notice}</p>}
       </div>
 
       {/* Summary Cards */}
@@ -155,6 +172,35 @@ export default function OperationsLeave() {
                           </div>
                         </div>
                       )}
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          className="px-2 py-1 rounded border border-border text-xs"
+                          onClick={async () => {
+                            const detail = await getLeaveRequestById(leave.id);
+                            const impacts = await getLeaveImpacts(leave.id);
+                            setNotice(
+                              `Leave ${detail.leaveType} (${detail.status}) ${detail.startDate} to ${detail.endDate}, impacts: ${impacts.length}`
+                            );
+                          }}
+                        >
+                          View Detail
+                        </button>
+                        {leave.impactedAppts > 0 && (
+                          <button
+                            className="px-2 py-1 rounded border border-border text-xs"
+                            onClick={async () => {
+                              const impactId = impactIdsByLeave.get(leave.id)?.[0];
+                              if (!impactId) return;
+                              const detail = await getLeaveImpactById(impactId);
+                              setNotice(
+                                `Impact ${detail.impactType} (${detail.status}), resolved: ${detail.resolvedDate ?? "No"}`
+                              );
+                            }}
+                          >
+                            Impact Detail
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -164,6 +210,9 @@ export default function OperationsLeave() {
                       <button
                         onClick={async () => {
                           await approveLeave(leave.id);
+                          const me = await meApi();
+                          const impacts = impactIdsByLeave.get(leave.id) ?? [];
+                          await Promise.all(impacts.map((impactId) => resolveLeaveImpact(impactId, me.userId)));
                           await refresh();
                         }}
                         className="px-4 py-2 rounded-lg bg-[#95d4a8] text-white text-sm font-medium hover:shadow-md transition-all flex items-center gap-2"
@@ -174,6 +223,9 @@ export default function OperationsLeave() {
                       <button
                         onClick={async () => {
                           await rejectLeave(leave.id);
+                          const me = await meApi();
+                          const impacts = impactIdsByLeave.get(leave.id) ?? [];
+                          await Promise.all(impacts.map((impactId) => resolveLeaveImpact(impactId, me.userId)));
                           await refresh();
                         }}
                         className="px-4 py-2 rounded-lg bg-[#e8a0a0] text-white text-sm font-medium hover:shadow-md transition-all flex items-center gap-2"

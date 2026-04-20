@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "../components/Header";
 import { StatCard } from "../components/StatCard";
 import { Calendar, Clock, Users, CheckCircle, Plus } from "lucide-react";
@@ -6,7 +6,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { searchAppointments, type AppointmentDto } from "../../api/appointmentsApi";
 import { meApi } from "../../api/authApi";
 import { fetchProviders, fetchServices, fetchSites } from "../../api/masterdataApi";
-import { fetchUsers } from "../../api/usersApi";
 
 export default function ProviderDashboard() {
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
@@ -19,20 +18,18 @@ export default function ProviderDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [me, users, providers, services, sites] = await Promise.all([
+        const [me, providers, services, sites] = await Promise.all([
           meApi(),
-          fetchUsers({ page: 1, pageSize: 500 }),
           fetchProviders(),
           fetchServices(),
           fetchSites({ page: 1, pageSize: 250 }),
         ]);
         if (cancelled) return;
-        const meUser = users.find((u) => u.email.toLowerCase() === me.email.toLowerCase());
-        if (!meUser?.providerId) return;
-        const list = await searchAppointments({ providerId: meUser.providerId });
+        if (!me.providerId) return;
+        const list = await searchAppointments({ providerId: me.providerId });
         if (cancelled) return;
         setAppointments(list);
-        setPatientNames(new Map(users.map((u) => [u.userId, u.name])));
+        setPatientNames(new Map());
         setSiteNames(new Map(sites.map((s) => [s.siteId, s.name])));
         setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
         void providers;
@@ -45,20 +42,16 @@ export default function ProviderDashboard() {
     };
   }, []);
 
-  const myAppointments = useMemo(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: patientNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        provider: "Self",
-        date: apt.slotDate,
-        time: apt.startTime,
-        site: siteNames.get(apt.siteId) ?? `Site #${apt.siteId}`,
-        status: apt.status,
-      })),
-    [appointments, patientNames, serviceNames, siteNames]
-  );
+  const myAppointments = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    provider: "Self",
+    date: apt.slotDate,
+    time: apt.startTime,
+    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+    status: apt.status,
+  }));
 
   const today = new Date().toISOString().slice(0, 10);
   const todayAppointments = myAppointments.filter((apt) => apt.date === today);

@@ -1,15 +1,88 @@
 import { Users, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  searchOnCall,
+  searchRosterAssignments,
+  searchRosters,
+  type OnCallDto,
+  type RosterAssignmentDto,
+  type RosterDto,
+} from "../../../api/operationsApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
-const staffMembers = [
-  { id: 1, name: "Sneha Reddy", role: "Nurse", shifts: 5, hours: 40, utilization: 100, department: "Emergency" },
-  { id: 2, name: "Deepa Iyer", role: "Tech", shifts: 5, hours: 40, utilization: 100, department: "Radiology" },
-  { id: 3, name: "Rahul Verma", role: "Nurse", shifts: 4, hours: 32, utilization: 80, department: "ICU" },
-  { id: 4, name: "Priya Nair", role: "FrontDesk", shifts: 5, hours: 40, utilization: 100, department: "Reception" },
-  { id: 5, name: "Amit Kumar", role: "Tech", shifts: 3, hours: 24, utilization: 60, department: "Lab" },
-  { id: 6, name: "Kavita Desai", role: "Nurse", shifts: 5, hours: 40, utilization: 100, department: "Pediatrics" },
-];
+type StaffMember = {
+  id: number;
+  name: string;
+  role: string;
+  shifts: number;
+  hours: number;
+  utilization: number;
+  department: string;
+};
 
 export default function OperationsStaffing() {
+  const [rosters, setRosters] = useState<RosterDto[]>([]);
+  const [assignments, setAssignments] = useState<RosterAssignmentDto[]>([]);
+  const [onCall, setOnCall] = useState<OnCallDto[]>([]);
+  const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [r, a, o, users] = await Promise.all([
+          searchRosters(),
+          searchRosterAssignments(),
+          searchOnCall(),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
+        ]);
+        if (cancelled) return;
+        setRosters(r);
+        setAssignments(a);
+        setOnCall(o);
+        setUserNames(new Map(users.map((u) => [u.userId, u.name])));
+      } catch {
+        if (!cancelled) {
+          setRosters([]);
+          setAssignments([]);
+          setOnCall([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const staffMembers: StaffMember[] = (() => {
+    const shiftsByUser = new Map<number, number>();
+    for (const item of assignments) {
+      shiftsByUser.set(item.userId, (shiftsByUser.get(item.userId) ?? 0) + 1);
+    }
+    const onCallByUser = new Map<number, number>();
+    for (const item of onCall) {
+      onCallByUser.set(item.primaryUserId, (onCallByUser.get(item.primaryUserId) ?? 0) + 1);
+    }
+    return Array.from(shiftsByUser.entries()).map(([userId, shifts]) => {
+      const onCallShifts = onCallByUser.get(userId) ?? 0;
+      const totalShifts = shifts + onCallShifts;
+      const hours = totalShifts * 8;
+      const utilization = Math.min(100, Math.round((hours / 40) * 100));
+      const role = assignments.find((a) => a.userId === userId)?.role ?? "Staff";
+      return {
+        id: userId,
+        name: userNames.get(userId) ?? "Staff Member",
+        role,
+        shifts: totalShifts,
+        hours,
+        utilization,
+        department: rosters[0]?.department ?? "General",
+      };
+    });
+  })();
+
+  const departmentCount = new Set(rosters.map((r) => r.department).filter(Boolean)).size || 1;
+
   const getUtilizationColor = (util: number) => {
     if (util >= 90) return "bg-[#95d4a8]";
     if (util >= 70) return "bg-[#f0b895]";
@@ -32,7 +105,9 @@ export default function OperationsStaffing() {
         <div className="p-5 rounded-xl bg-gradient-to-br from-[#95d4a8]/10 to-[#75b488]/5 border border-[#95d4a8]/20">
           <p className="text-sm text-muted-foreground mb-1">Avg Utilization</p>
           <p className="text-3xl font-medium text-foreground">
-            {Math.round(staffMembers.reduce((sum, s) => sum + s.utilization, 0) / staffMembers.length)}%
+            {staffMembers.length
+              ? `${Math.round(staffMembers.reduce((sum, s) => sum + s.utilization, 0) / staffMembers.length)}%`
+              : "0%"}
           </p>
         </div>
         <div className="p-5 rounded-xl bg-gradient-to-br from-[#f0b895]/10 to-[#d89768]/5 border border-[#f0b895]/20">
@@ -43,7 +118,7 @@ export default function OperationsStaffing() {
         </div>
         <div className="p-5 rounded-xl bg-gradient-to-br from-[#a68fcf]/10 to-[#9478bf]/5 border border-[#a68fcf]/20">
           <p className="text-sm text-muted-foreground mb-1">Departments</p>
-          <p className="text-3xl font-medium text-foreground">8</p>
+          <p className="text-3xl font-medium text-foreground">{departmentCount}</p>
         </div>
       </div>
 

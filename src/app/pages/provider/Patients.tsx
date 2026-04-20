@@ -1,14 +1,74 @@
 import { Search, User } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import { meApi } from "../../../api/authApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
-const patients = [
-  { id: 1, name: "Anjali Mehta", lastVisit: "2026-03-15", totalVisits: 5, condition: "Hypertension" },
-  { id: 2, name: "Arjun Nair", lastVisit: "2026-03-20", totalVisits: 3, condition: "Diabetes" },
-  { id: 3, name: "Kavita Desai", lastVisit: "2026-03-25", totalVisits: 7, condition: "Cardiac Care" },
-];
+type ProviderPatientRow = {
+  id: number;
+  name: string;
+  lastVisit: string;
+  totalVisits: number;
+  condition: string;
+};
 
 export default function ProviderPatients() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [patientNames, setPatientNames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await meApi();
+        if (!me.providerId || cancelled) return;
+        const [list, users] = await Promise.all([
+          searchAppointments({ providerId: me.providerId }),
+          fetchUsers({ role: "Patient", page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
+        ]);
+        if (cancelled) return;
+        setAppointments(list);
+        setPatientNames(new Map(users.map((u) => [u.userId, u.name])));
+      } catch {
+        if (!cancelled) setAppointments([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const patients = (() => {
+    const grouped = new Map<number, AppointmentDto[]>();
+    for (const apt of appointments) {
+      const bucket = grouped.get(apt.patientId) ?? [];
+      bucket.push(apt);
+      grouped.set(apt.patientId, bucket);
+    }
+
+    return Array.from(grouped.entries()).map(([patientId, visits]) => {
+      const sorted = [...visits].sort((a, b) => (a.slotDate < b.slotDate ? 1 : -1));
+      return {
+        id: patientId,
+        name: patientNames.get(patientId) ?? "Unknown Patient",
+        lastVisit: sorted[0]?.slotDate ?? "-",
+        totalVisits: visits.length,
+        condition: "Active",
+      };
+    });
+  })();
+
+  const filteredPatients = (() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return patients;
+    return patients.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.condition.toLowerCase().includes(q) ||
+        p.lastVisit.toLowerCase().includes(q)
+    );
+  })();
 
   return (
     <div className="p-6">
@@ -33,7 +93,7 @@ export default function ProviderPatients() {
 
         <div className="p-5">
           <div className="space-y-3">
-            {patients.map((patient) => (
+            {filteredPatients.map((patient) => (
               <div key={patient.id} className="p-4 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">

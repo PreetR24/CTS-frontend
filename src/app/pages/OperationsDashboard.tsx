@@ -2,7 +2,7 @@ import { Header } from "../components/Header";
 import { StatCard } from "../components/StatCard";
 import { Users, Calendar, ClipboardList, TrendingUp, AlertCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { searchLeaveRequests, searchOnCall, searchRosters } from "../../api/operationsApi";
 import { fetchUsers } from "../../api/usersApi";
 
@@ -28,18 +28,18 @@ export default function OperationsDashboard() {
         setShifts(
           onCalls.map((o, i) => ({
             id: i + 1,
-            staff: names.get(o.primaryUserId) ?? `User #${o.primaryUserId}`,
+            staff: names.get(o.primaryUserId) ?? "Team Member",
             role: o.department ?? "OnCall",
             date: o.date,
             shift: `${o.startTime}-${o.endTime}`,
-            site: `Site #${o.siteId}`,
+            site: "Unknown Site",
             status: o.status,
           }))
         );
         setLeaves(
           leaves.map((l) => ({
             id: l.leaveId,
-            staff: names.get(l.userId) ?? `User #${l.userId}`,
+            staff: names.get(l.userId) ?? "Team Member",
             type: l.leaveType,
             startDate: l.startDate,
             endDate: l.endDate,
@@ -74,7 +74,7 @@ export default function OperationsDashboard() {
 
   const pendingLeaves = mockLeaveRequests.filter(req => req.status === "Pending").length;
   const today = new Date().toISOString().slice(0, 10);
-  const totalStaffScheduled = useMemo(() => mockShifts.filter(s => s.date === today).length, [mockShifts, today]);
+  const totalStaffScheduled = mockShifts.filter((s) => s.date === today).length;
 
   return (
     <div className="min-h-screen bg-background">

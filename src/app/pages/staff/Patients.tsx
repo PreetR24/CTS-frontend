@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { User, Activity, Heart, Thermometer, Droplet, Clock, CheckCircle2, Plus } from "lucide-react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { fetchProviders, fetchServices, fetchSites } from "../../../api/masterdataApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type AppointmentRow = {
   id: number;
@@ -38,7 +38,7 @@ export default function StaffPatients() {
         const today = new Date().toISOString().slice(0, 10);
         const [list, users, providers, services, sites] = await Promise.all([
           searchAppointments({ date: today }),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchProviders(),
           fetchServices(),
           fetchSites({ page: 1, pageSize: 250 }),
@@ -58,19 +58,15 @@ export default function StaffPatients() {
     };
   }, []);
 
-  const todayAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: patientNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        status: apt.status,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        time: to12Hour(apt.startTime),
-        site: siteNames.get(apt.siteId) ?? `Site #${apt.siteId}`,
-      })),
-    [appointments, patientNames, providerNames, serviceNames, siteNames]
-  );
+  const todayAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    status: apt.status,
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    time: to12Hour(apt.startTime),
+    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+  }));
 
   const getStatusColor = (status: string) => {
     switch(status) {

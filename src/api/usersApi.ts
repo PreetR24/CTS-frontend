@@ -1,6 +1,6 @@
 import api from "./axios";
 import type { ApiResponse } from "./apiTypes";
-import { unwrapAxiosApiList } from "./apiTypes";
+import { unwrapAxiosApiData, unwrapAxiosApiList } from "./apiTypes";
 
 export interface UserDto {
   userId: number;
@@ -27,4 +27,55 @@ export interface UserSearchParams {
 export async function fetchUsers(params?: UserSearchParams): Promise<UserDto[]> {
   const res = await api.get<ApiResponse<unknown>>("/api/iam/users", { params });
   return unwrapAxiosApiList<UserDto>(res);
+}
+
+export interface UserCreatePayload {
+  name: string;
+  role: string;
+  email: string;
+  phone?: string;
+  providerId?: number;
+}
+
+export interface UserUpdatePayload {
+  name?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  providerId?: number;
+}
+
+export async function getUserById(userId: number): Promise<UserDto> {
+  const res = await api.get<ApiResponse<UserDto>>(`/api/iam/users/${userId}`);
+  return unwrapAxiosApiData(res);
+}
+
+export async function createUser(payload: UserCreatePayload): Promise<UserDto> {
+  const res = await api.post<ApiResponse<UserDto>>("/api/iam/users", payload);
+  return unwrapAxiosApiData(res);
+}
+
+export async function updateUser(userId: number, payload: UserUpdatePayload): Promise<UserDto> {
+  const res = await api.put<ApiResponse<UserDto>>(`/api/iam/users/${userId}`, payload);
+  return unwrapAxiosApiData(res);
+}
+
+export async function deactivateUser(userId: number): Promise<void> {
+  const res = await api.delete<ApiResponse<object>>(`/api/iam/users/${userId}`);
+  unwrapAxiosApiData(res);
+}
+
+export async function activateUser(userId: number): Promise<void> {
+  const res = await api.post<ApiResponse<object>>(`/api/iam/users/${userId}/activate`);
+  unwrapAxiosApiData(res);
+}
+
+export async function lockUser(userId: number): Promise<void> {
+  const res = await api.patch<ApiResponse<object>>(`/api/iam/users/${userId}/lock`);
+  unwrapAxiosApiData(res);
+}
+
+export async function unlockUser(userId: number): Promise<void> {
+  const res = await api.patch<ApiResponse<object>>(`/api/iam/users/${userId}/unlock`);
+  unwrapAxiosApiData(res);
 }

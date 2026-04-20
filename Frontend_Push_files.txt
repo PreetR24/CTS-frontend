@@ -1,0 +1,239 @@
+Frontend push ownership (empty repo full push)
+=============================================
+
+Use this as the file-wise push checklist per teammate/module.
+No frontend files are removed; all listed files are active.
+
+Final update (latest integration/refactor pass)
+----------------------------------------------
+- Prompt-based flows were replaced with modal/form inputs in key pages.
+- Button submit/action logic was moved into named functions in the same files for easier explanation.
+- Keep these latest changed files included during push review:
+  - frontend/src/app/pages/admin/Users.tsx
+  - frontend/src/app/pages/admin/Providers.tsx
+  - frontend/src/app/pages/admin/Sites.tsx
+  - frontend/src/app/pages/admin/Services.tsx
+  - frontend/src/app/pages/admin/Config.tsx
+  - frontend/src/app/pages/admin/Holidays.tsx
+  - frontend/src/app/pages/operations/OnCall.tsx
+  - frontend/src/app/pages/frontdesk/Queue.tsx
+  - frontend/src/app/pages/provider/Appointments.tsx
+  - frontend/src/app/pages/provider/Availability.tsx
+  - frontend/src/app/pages/staff/Rooms.tsx
+- These files are already part of module ownership sections below; this is a final verification reminder.
+
+Branches:
+- feature/preet-auth-availability-appointments
+- feature/prathamesh-masterdata-rules
+- feature/chinmaya-patientflow-slots-leave
+- feature/vinith-ops-calendar-roster-admin
+
+----------------------------------------------------------------
+1) PREET
+----------------------------------------------------------------
+
+Module files
+- frontend/src/api/apiTypes.ts
+- frontend/src/api/axios.ts
+- frontend/src/api/authApi.ts
+- frontend/src/api/publicAuthApi.ts
+- frontend/src/api/appointmentsApi.ts
+- frontend/src/api/availabilityApi.ts
+- frontend/src/api/slotsApi.ts
+- frontend/src/api/providerSchedulingApi.ts
+- frontend/src/api/outcomesApi.ts
+- frontend/src/api/AuthContext.tsx
+- frontend/src/app/pages/Login.tsx
+- frontend/src/app/pages/provider/Dashboard.tsx
+- frontend/src/app/pages/provider/Appointments.tsx
+- frontend/src/app/pages/provider/Schedule.tsx
+- frontend/src/app/pages/provider/Availability.tsx
+- frontend/src/app/pages/provider/Patients.tsx
+- frontend/src/app/pages/provider/Leave.tsx
+- frontend/src/app/pages/ProviderDashboard.tsx
+- frontend/src/app/pages/patient/Dashboard.tsx
+- frontend/src/app/pages/patient/Appointments.tsx
+- frontend/src/app/pages/patient/Records.tsx
+- frontend/src/app/pages/patient/Prescriptions.tsx
+- frontend/src/app/pages/patient/Profile.tsx
+- frontend/src/app/pages/PatientDashboard.tsx
+- frontend/src/app/routes/AuthGuard.tsx
+- frontend/src/app/routes/ProviderGuard.tsx
+- frontend/src/app/routes/PatientGuard.tsx
+
+Shared allocation (equal split)
+- frontend/src/main.tsx
+- frontend/src/app/components/Header.tsx
+- frontend/src/app/layouts/ProviderLayout.tsx
+- frontend/src/styles/tailwind.css
+- frontend/src/app/components/ui/accordion.tsx
+- frontend/src/app/components/ui/alert-dialog.tsx
+- frontend/src/app/components/ui/alert.tsx
+- frontend/src/app/components/ui/aspect-ratio.tsx
+- frontend/src/app/components/ui/avatar.tsx
+- frontend/src/app/components/ui/badge.tsx
+- frontend/src/app/components/ui/breadcrumb.tsx
+- frontend/src/app/components/ui/button.tsx
+- frontend/src/app/components/ui/calendar.tsx
+- frontend/src/app/components/ui/card.tsx
+- frontend/src/app/components/ui/carousel.tsx
+- frontend/src/app/components/ui/chart.tsx
+- frontend/src/app/components/ui/checkbox.tsx
+- frontend/src/app/components/ui/collapsible.tsx
+- frontend/src/app/components/ui/command.tsx
+- frontend/src/app/components/ui/context-menu.tsx
+
+Root/docs allocation
+- frontend/package.json
+- frontend/README.md
+- frontend/API_Integration_Plan.txt
+- frontend/FRONTEND_FILES_CHANGED.txt
+
+----------------------------------------------------------------
+2) PRATHAMESH
+----------------------------------------------------------------
+
+Module files
+- frontend/src/api/masterdataApi.ts
+- frontend/src/api/adminViewMappers.ts
+- frontend/src/api/systemConfigsApi.ts
+- frontend/src/api/adminGovernanceApi.ts
+- frontend/src/api/holidaysApi.ts
+- frontend/src/app/pages/admin/Dashboard.tsx
+- frontend/src/app/pages/admin/Sites.tsx
+- frontend/src/app/pages/admin/Providers.tsx
+- frontend/src/app/pages/admin/Services.tsx
+- frontend/src/app/pages/admin/Holidays.tsx
+- frontend/src/app/pages/admin/Config.tsx
+- frontend/src/app/pages/AdminDashboard.tsx
+- frontend/src/app/routes/AdminGuard.tsx
+
+Shared allocation (equal split)
+- frontend/src/app/App.tsx
+- frontend/src/app/components/Sidebar.tsx
+- frontend/src/app/layouts/AdminLayout.tsx
+- frontend/src/styles/theme.css
+- frontend/src/app/components/ui/dialog.tsx
+- frontend/src/app/components/ui/drawer.tsx
+- frontend/src/app/components/ui/dropdown-menu.tsx
+- frontend/src/app/components/ui/form.tsx
+- frontend/src/app/components/ui/hover-card.tsx
+- frontend/src/app/components/ui/input-otp.tsx
+- frontend/src/app/components/ui/input.tsx
+- frontend/src/app/components/ui/label.tsx
+- frontend/src/app/components/ui/menubar.tsx
+- frontend/src/app/components/ui/navigation-menu.tsx
+- frontend/src/app/components/ui/pagination.tsx
+- frontend/src/app/components/ui/popover.tsx
+- frontend/src/app/components/ui/progress.tsx
+- frontend/src/app/components/ui/radio-group.tsx
+- frontend/src/app/components/ui/resizable.tsx
+- frontend/src/app/components/ui/scroll-area.tsx
+
+Root/docs allocation
+- frontend/package-lock.json
+- frontend/ATTRIBUTIONS.md
+- frontend/BACKEND_INTEGRATION_NOTES.txt
+- frontend/BACKEND_FILES_CHANGED.txt
+
+----------------------------------------------------------------
+3) CHINMAYA
+----------------------------------------------------------------
+
+Module files
+- frontend/src/api/checkinsApi.ts
+- frontend/src/api/frontdeskBillingApi.ts
+- frontend/src/api/resourceHoldsApi.ts
+- frontend/src/app/pages/frontdesk/Booking.tsx
+- frontend/src/app/pages/frontdesk/CheckIn.tsx
+- frontend/src/app/pages/frontdesk/Queue.tsx
+- frontend/src/app/pages/frontdesk/Waitlist.tsx
+- frontend/src/app/pages/frontdesk/Search.tsx
+- frontend/src/app/pages/frontdesk/Dashboard.tsx
+- frontend/src/app/pages/FrontDeskDashboard.tsx
+- frontend/src/app/pages/staff/Dashboard.tsx
+- frontend/src/app/pages/staff/Schedule.tsx
+- frontend/src/app/pages/staff/Patients.tsx
+- frontend/src/app/pages/staff/Rooms.tsx
+- frontend/src/app/pages/staff/Tasks.tsx
+- frontend/src/app/pages/StaffDashboard.tsx
+- frontend/src/app/routes/FrontDeskGuard.tsx
+- frontend/src/app/routes/NurseGuard.tsx
+
+Shared allocation (equal split)
+- frontend/src/vite-env.d.ts
+- frontend/src/app/components/StatCard.tsx
+- frontend/src/app/layouts/FrontDeskLayout.tsx
+- frontend/src/styles/index.css
+- frontend/src/app/components/ui/select.tsx
+- frontend/src/app/components/ui/separator.tsx
+- frontend/src/app/components/ui/sheet.tsx
+- frontend/src/app/components/ui/sidebar.tsx
+- frontend/src/app/components/ui/skeleton.tsx
+- frontend/src/app/components/ui/slider.tsx
+- frontend/src/app/components/ui/sonner.tsx
+- frontend/src/app/components/ui/switch.tsx
+- frontend/src/app/components/ui/table.tsx
+- frontend/src/app/components/ui/tabs.tsx
+- frontend/src/app/components/ui/textarea.tsx
+- frontend/src/app/components/ui/toggle-group.tsx
+- frontend/src/app/components/ui/toggle.tsx
+- frontend/src/app/components/ui/tooltip.tsx
+- frontend/src/app/components/ui/use-mobile.ts
+- frontend/src/app/components/ui/utils.ts
+
+Root/docs allocation
+- frontend/tsconfig.json
+- frontend/APPLICATION_STRUCTURE.md
+- frontend/FRONTEND_DUMMY_DATA_REMOVED_TO_API.txt
+- frontend/guidelines/Guidelines.md
+
+----------------------------------------------------------------
+4) VINITH
+----------------------------------------------------------------
+
+Module files
+- frontend/src/api/usersApi.ts
+- frontend/src/api/reportsApi.ts
+- frontend/src/api/operationsApi.ts
+- frontend/src/api/operationsPlanningApi.ts
+- frontend/src/api/calendarApi.ts
+- frontend/src/api/notificationsApi.ts
+- frontend/src/app/pages/admin/Users.tsx
+- frontend/src/app/pages/admin/Reports.tsx
+- frontend/src/app/pages/operations/Dashboard.tsx
+- frontend/src/app/pages/operations/Roster.tsx
+- frontend/src/app/pages/operations/Leave.tsx
+- frontend/src/app/pages/operations/OnCall.tsx
+- frontend/src/app/pages/operations/Staffing.tsx
+- frontend/src/app/pages/operations/Analytics.tsx
+- frontend/src/app/pages/OperationsDashboard.tsx
+- frontend/src/app/routes/OperationsGuard.tsx
+- frontend/src/app/routes/RoleGuard.tsx
+
+Shared allocation (equal split)
+- frontend/src/app/routes/routes.ts
+- frontend/src/app/components/figma/ImageWithFallback.tsx
+- frontend/src/app/layouts/OperationsLayout.tsx
+- frontend/src/app/layouts/PatientLayout.tsx
+- frontend/src/app/layouts/StaffLayout.tsx
+- frontend/src/imports/pasted_text/care-schedule-cts-explanation.md
+- frontend/src/imports/pasted_text/care-schedule-overview.md
+- frontend/src/imports/pasted_text/care-schedule-schema.txt
+
+Root/docs allocation
+- frontend/.env.example
+- frontend/index.html
+- frontend/vite.config.ts
+
+Initial build output (only if you want dist in empty repo)
+- frontend/dist/index.html
+- frontend/dist/assets/index-C9cTs0yc.css
+- frontend/dist/assets/index-mUDjwhiD.js
+
+----------------------------------------------------------------
+Final check rule
+----------------------------------------------------------------
+- Everything under `frontend/**` is assigned above.
+- Do not skip files during initial empty-repo push.
+- If you decide not to version `frontend/dist/**`, remove those 3 lines from Vinith section.

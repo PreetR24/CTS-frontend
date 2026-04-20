@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { searchWaitlist, type WaitlistDto } from "../../../api/appointmentsApi";
+import { fillWaitlist, removeWaitlist, searchWaitlist, type WaitlistDto } from "../../../api/appointmentsApi";
 import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type WaitlistRow = {
   id: number;
@@ -25,7 +25,7 @@ export default function FrontDeskWaitlist() {
       try {
         const [waitlist, users, providers, services] = await Promise.all([
           searchWaitlist(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchProviders(),
           fetchServices(),
         ]);
@@ -43,18 +43,37 @@ export default function FrontDeskWaitlist() {
     };
   }, []);
 
-  const waitlistRows = useMemo<WaitlistRow[]>(
-    () =>
-      items.map((item) => ({
-        id: item.waitId,
-        patient: userNames.get(item.patientId) ?? `Patient #${item.patientId}`,
-        provider: providerNames.get(item.providerId) ?? `Provider #${item.providerId}`,
-        service: serviceNames.get(item.serviceId) ?? `Service #${item.serviceId}`,
-        priority: item.priority,
-        requestedDate: item.requestedDate,
-      })),
-    [items, userNames, providerNames, serviceNames]
-  );
+  const waitlistRows: WaitlistRow[] = items.map((item) => ({
+    id: item.waitId,
+    patient: userNames.get(item.patientId) ?? "Unknown Patient",
+    provider: providerNames.get(item.providerId) ?? "Unknown Provider",
+    service: serviceNames.get(item.serviceId) ?? "Unknown Service",
+    priority: item.priority,
+    requestedDate: item.requestedDate,
+  }));
+
+  const refreshWaitlist = async () => {
+    const waitlist = await searchWaitlist();
+    setItems(waitlist);
+  };
+
+  const handleFill = async (waitId: number) => {
+    try {
+      await fillWaitlist(waitId, "FrontDesk");
+      await refreshWaitlist();
+    } catch {
+      // leave UI unchanged
+    }
+  };
+
+  const handleRemove = async (waitId: number) => {
+    try {
+      await removeWaitlist(waitId);
+      await refreshWaitlist();
+    } catch {
+      // leave UI unchanged
+    }
+  };
 
   return (
     <div className="p-6">
@@ -92,8 +111,17 @@ export default function FrontDeskWaitlist() {
                   </td>
                   <td className="py-4 px-4 text-sm text-muted-foreground">{item.requestedDate}</td>
                   <td className="py-4 px-4">
-                    <button className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs">
+                    <button
+                      onClick={() => handleFill(item.id)}
+                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs"
+                    >
                       Book Slot
+                    </button>
+                    <button
+                      onClick={() => handleRemove(item.id)}
+                      className="ml-2 px-3 py-1.5 border border-border rounded-lg hover:bg-secondary transition-colors text-xs"
+                    >
+                      Remove
                     </button>
                   </td>
                 </tr>

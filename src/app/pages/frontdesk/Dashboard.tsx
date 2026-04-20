@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { StatCard } from "../../components/StatCard";
 import { Calendar, Users, Clock, AlertCircle } from "lucide-react";
 import { searchAppointments, searchWaitlist, type AppointmentDto } from "../../../api/appointmentsApi";
 import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type AppointmentRow = {
   id: number;
@@ -37,7 +37,7 @@ export default function FrontDeskDashboard() {
         const [list, waitlist, users, providers, services] = await Promise.all([
           searchAppointments({ date: today }),
           searchWaitlist(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchProviders(),
           fetchServices(),
         ]);
@@ -59,18 +59,14 @@ export default function FrontDeskDashboard() {
     };
   }, []);
 
-  const todayAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: userNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        time: to12Hour(apt.startTime),
-        status: apt.status,
-      })),
-    [appointments, userNames, providerNames, serviceNames]
-  );
+  const todayAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: userNames.get(apt.patientId) ?? "Unknown Patient",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    time: to12Hour(apt.startTime),
+    status: apt.status,
+  }));
 
   const checkedInCount = todayAppointments.filter(apt => apt.status === "CheckedIn").length;
   const pendingCheckin = todayAppointments.filter(apt => apt.status === "Booked").length;

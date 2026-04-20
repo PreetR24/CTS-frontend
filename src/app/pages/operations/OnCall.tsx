@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Phone, AlertCircle, Clock } from "lucide-react";
-import { searchOnCall } from "../../../api/operationsApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { getOnCallById, searchOnCall, updateOnCall } from "../../../api/operationsApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type OnCallRow = {
   id: number;
@@ -16,6 +16,8 @@ type OnCallRow = {
 
 export default function OperationsOnCall() {
   const [rows, setRows] = useState<OnCallRow[]>([]);
+  const [editOnCallId, setEditOnCallId] = useState<number | null>(null);
+  const [editDepartment, setEditDepartment] = useState("General");
 
   useEffect(() => {
     let cancelled = false;
@@ -23,7 +25,7 @@ export default function OperationsOnCall() {
       try {
         const [onCalls, users] = await Promise.all([
           searchOnCall(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
         ]);
         if (cancelled) return;
         const names = new Map(users.map((u) => [u.userId, u.name]));
@@ -33,8 +35,8 @@ export default function OperationsOnCall() {
             date: o.date,
             day: new Date(`${o.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "long" }),
             department: o.department ?? "General",
-            primary: names.get(o.primaryUserId) ?? `User #${o.primaryUserId}`,
-            backup: o.backupUserId ? names.get(o.backupUserId) ?? `User #${o.backupUserId}` : "—",
+            primary: names.get(o.primaryUserId) ?? "Team Member",
+            backup: o.backupUserId ? names.get(o.backupUserId) ?? "Team Member" : "—",
             contact: "+91 00000 00000",
             shift: `${o.startTime}-${o.endTime}`,
           }))
@@ -48,7 +50,7 @@ export default function OperationsOnCall() {
     };
   }, []);
 
-  const onCallSchedule = useMemo(() => rows, [rows]);
+  const onCallSchedule = rows;
 
   const getShiftColor = (shift: string) => {
     return shift.includes("08") || shift.includes("8") ? "bg-[#f0b895]/20 text-[#d89768]" : "bg-[#a68fcf]/20 text-[#9478bf]";
@@ -61,6 +63,39 @@ export default function OperationsOnCall() {
       case "Surgery": return "bg-[#95d4a8]/20 text-[#75b488]";
       default: return "bg-muted text-muted-foreground";
     }
+  };
+
+  const openEditDepartmentModal = async (onCallId: number) => {
+    const detail = await getOnCallById(onCallId);
+    setEditOnCallId(onCallId);
+    setEditDepartment(detail.department ?? "General");
+  };
+
+  const closeEditDepartmentModal = () => setEditOnCallId(null);
+
+  const saveEditedDepartment = async () => {
+    if (editOnCallId == null || !editDepartment.trim()) return;
+    await updateOnCall(editOnCallId, { department: editDepartment.trim() });
+    const list = await searchOnCall();
+    const names = new Map(
+      (await fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[])).map((u) => [
+        u.userId,
+        u.name,
+      ])
+    );
+    setRows(
+      list.map((o) => ({
+        id: o.onCallId,
+        date: o.date,
+        day: new Date(`${o.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "long" }),
+        department: o.department ?? "General",
+        primary: names.get(o.primaryUserId) ?? "Team Member",
+        backup: o.backupUserId ? names.get(o.backupUserId) ?? "Team Member" : "—",
+        contact: "+91 00000 00000",
+        shift: `${o.startTime}-${o.endTime}`,
+      }))
+    );
+    setEditOnCallId(null);
   };
 
   return (
@@ -163,13 +198,21 @@ export default function OperationsOnCall() {
                   <td className="py-4 px-4 text-sm font-medium text-foreground">{schedule.primary}</td>
                   <td className="py-4 px-4 text-sm text-muted-foreground">{schedule.backup}</td>
                   <td className="py-4 px-4">
-                    <a 
-                      href={`tel:${schedule.contact}`}
-                      className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#6b9bd1] text-white text-xs font-medium hover:shadow-md transition-all w-fit"
-                    >
-                      <Phone className="w-3 h-3" />
-                      Call
-                    </a>
+                    <div className="ml-auto flex items-center gap-2 w-fit">
+                      <a 
+                        href={`tel:${schedule.contact}`}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#6b9bd1] text-white text-xs font-medium hover:shadow-md transition-all w-fit"
+                      >
+                        <Phone className="w-3 h-3" />
+                        Call
+                      </a>
+                      <button
+                        className="px-3 py-1.5 rounded-lg border border-border text-xs"
+                        onClick={() => void openEditDepartmentModal(schedule.id)}
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -177,6 +220,31 @@ export default function OperationsOnCall() {
           </table>
         </div>
       </div>
+      {editOnCallId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-4">Edit Department</h3>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Department</label>
+            <input
+              type="text"
+              value={editDepartment}
+              onChange={(e) => setEditDepartment(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeEditDepartmentModal}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button onClick={() => void saveEditedDepartment()} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90">
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

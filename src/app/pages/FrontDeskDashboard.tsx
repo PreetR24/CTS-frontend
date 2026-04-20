@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "../components/Header";
 import { StatCard } from "../components/StatCard";
 import { Calendar, Users, Clock, AlertCircle, Plus, Search } from "lucide-react";
@@ -45,18 +45,14 @@ export default function FrontDeskDashboard() {
     };
   }, []);
 
-  const todayAppointments = useMemo(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: userNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        time: apt.startTime,
-        status: apt.status,
-      })),
-    [appointments, userNames, serviceNames, providerNames]
-  );
+  const todayAppointments = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: userNames.get(apt.patientId) ?? "Unknown Patient",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    time: apt.startTime,
+    status: apt.status,
+  }));
   const checkedInCount = todayAppointments.filter(apt => apt.status === "CheckedIn").length;
   const pendingCheckin = todayAppointments.filter(apt => apt.status === "Booked").length;
 
@@ -202,7 +198,7 @@ export default function FrontDeskDashboard() {
                 {waitlist.map((item) => (
                   <div key={item.waitId} className="p-3 rounded-lg bg-secondary/30 border border-border">
                     <div className="flex items-start justify-between mb-2">
-                      <p className="text-sm font-medium text-foreground">{userNames.get(item.patientId) ?? `Patient #${item.patientId}`}</p>
+                      <p className="text-sm font-medium text-foreground">{userNames.get(item.patientId) ?? "Unknown Patient"}</p>
                       <span
                         className={`px-2 py-0.5 rounded text-xs ${
                           item.priority === "High"
@@ -213,7 +209,7 @@ export default function FrontDeskDashboard() {
                         {item.priority}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-1">{serviceNames.get(item.serviceId) ?? `Service #${item.serviceId}`}</p>
+                    <p className="text-xs text-muted-foreground mb-1">{serviceNames.get(item.serviceId) ?? "Unknown Service"}</p>
                     <p className="text-xs text-muted-foreground">Requested: {item.requestedDate}</p>
                   </div>
                 ))}

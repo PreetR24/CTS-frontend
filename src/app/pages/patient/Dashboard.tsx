@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { StatCard } from "../../components/StatCard";
 import { Calendar, Clock, FileText, Bell } from "lucide-react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
@@ -55,19 +55,15 @@ export default function PatientDashboard() {
     };
   }, []);
 
-  const myAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        status: apt.status,
-        date: apt.slotDate,
-        time: to12Hour(apt.startTime),
-        site: siteNames.get(apt.siteId) ?? `Site #${apt.siteId}`,
-      })),
-    [appointments, providerNames, serviceNames, siteNames]
-  );
+  const myAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    status: apt.status,
+    date: apt.slotDate,
+    time: to12Hour(apt.startTime),
+    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+  }));
   const upcomingAppointments = myAppointments.filter(
     (apt) => apt.status === "Booked" || apt.status === "CheckedIn"
   );

@@ -1,0 +1,157 @@
+## End-to-End Frontend Test Workflow
+
+Use this as a **manual QA runbook** to verify every page + API integration.
+
+### 1) Pre-check setup (must pass first)
+
+- Start backend and confirm Swagger/API reachable.
+- Start frontend (`npm run dev`) and open app.
+- Clear browser storage/cookies before full run.
+- Keep DevTools open:
+  - Network tab: preserve log, disable cache
+  - Console tab: no red errors allowed
+- Verify env points to backend (`VITE_API_BASE_URL`).
+
+---
+
+### 2) Smoke gate (quick fail-fast)
+
+Do this before deep testing:
+
+- Login works for each role account.
+- Role routing works (no unauthorized page leaks).
+- Left nav and dashboards load without crash.
+- No endless spinner / blank page.
+- Logout works and token clears.
+
+If any fails, stop and fix before continuing.
+
+---
+
+### 3) Role-wise full manual run
+
+Test role by role, and for each page verify:
+1) page renders,  
+2) list data loads from backend,  
+3) create/update/delete actions work,  
+4) success and failure states are handled.
+
+### A. Admin flow
+
+- `admin/Dashboard`
+  - KPI data loads, governance quick actions work.
+- `admin/Sites`, `admin/Providers`, `admin/Services`
+  - Add, edit, deactivate, activate.
+- `admin/Users`
+  - Create, edit, lock/unlock, activate/deactivate.
+- `admin/Holidays`
+  - Create/update/delete/activate, by-date behavior.
+- `admin/Config`
+  - system config CRUD + capacity/SLA/audit interactions.
+- `admin/Reports`
+  - list, create, get-by-id detail, export.
+
+### B. Provider flow
+
+- `provider/Dashboard`
+  - appointment-derived stats and charts load.
+- `provider/Availability`
+  - template create/edit, slots generate, blocks add/delete, provider-service mapping.
+- `provider/Appointments`
+  - status actions, no-show, outcome create.
+- `provider/Patients`
+  - patient list resolves names correctly.
+- `provider/Leave`
+  - submit leave, cancel pending leave, detail, leave-impact create.
+
+### C. Frontdesk flow
+
+- `frontdesk/Booking`
+  - patient select/manual ID, provider-service filtering, slots load, booking confirm.
+  - no slot -> waitlist create.
+  - charge create + charge fetch after booking.
+- `frontdesk/CheckIn`
+  - check-in flow transitions.
+- `frontdesk/Queue`
+  - assign room, status updates, hold room, view charges.
+- `frontdesk/Waitlist`
+  - list/filter/fill/cancel behavior.
+- `frontdesk/Search`
+  - search results with resolved names.
+
+### D. Staff flow
+
+- `staff/Dashboard`, `staff/Schedule`, `staff/Patients`
+  - backend data visible and consistent.
+- `staff/Rooms`
+  - event detail, hold detail, **edit hold**, **release hold**.
+- `staff/Tasks`
+  - notification-backed task actions.
+
+### E. Operations flow
+
+- `operations/Dashboard`
+  - roster/on-call/leave-derived stats.
+- `operations/Roster`
+  - templates, roster CRUD, publish, assignments, swap/absent.
+- `operations/Leave`
+  - approve/reject + impact resolution/detail.
+- `operations/OnCall`
+  - create/update/list.
+- `operations/Staffing`, `operations/Analytics`
+  - charts/tables from backend data.
+- `OperationsDashboard` (legacy)
+  - confirm still functional and backend-driven.
+
+### F. Patient flow
+
+- `patient/Dashboard`, `patient/Appointments`, `patient/Records`, `patient/Prescriptions`, `patient/Profile`
+  - all pages load and use real backend data where supported.
+
+---
+
+### 4) API validation method (for every action)
+
+For each button/action you click:
+
+- Confirm request fired in Network.
+- Confirm expected HTTP status (2xx for success path).
+- Confirm payload correctness.
+- Confirm UI updates from response (not stale local mock).
+- Refresh page and verify persisted data still correct.
+- Also run one negative case (invalid input / unauthorized / conflict).
+
+---
+
+### 5) Edge-case matrix (minimum)
+
+Run at least these:
+
+- Empty lists (no records).
+- Invalid form inputs (required fields, bad date ranges).
+- Duplicate create attempts.
+- Role-restricted action attempt (expect 401/403).
+- Expired token/session (re-login flow).
+- Slow API / backend down (error UI should not crash).
+- Large list pages (pagination/search stability).
+
+---
+
+### 6) Final release gate checklist
+
+Before calling frontend “fully working”:
+
+- `npm run typecheck` passes.
+- `npm run build` passes.
+- No console errors during full role test.
+- No failing API in Network for normal happy paths.
+- All major CRUD flows tested once per module.
+- No placeholder/dummy text visible in critical demo screens.
+- Logout/login cycle tested after long session.
+- No `window.prompt` flows remain on tested pages (all replaced by modal/form inputs).
+- Confirm new modal submit actions actually call backend and update UI correctly.
+- For recently refactored pages, verify button handlers still work after moving logic into named functions.
+
+---
+
+If you want, I can convert this into a **one-page QA sheet** (checkbox format) and add it as `frontend/FRONTEND_MANUAL_TEST_RUNBOOK.md` so your team can execute it consistently.

@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Calendar, Clock } from "lucide-react";
-import { cancelAppointment, searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import {
+  cancelAppointment,
+  getAppointmentById,
+  rescheduleAppointment,
+  searchAppointments,
+  type AppointmentDto,
+} from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
 import { fetchProviders, fetchServices, fetchSites } from "../../../api/masterdataApi";
+import { searchOpenSlots } from "../../../api/slotsApi";
 
 type AppointmentRow = {
   id: number;
@@ -28,6 +35,7 @@ export default function PatientAppointments() {
   const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
   const [siteNames, setSiteNames] = useState<Map<number, string>>(new Map());
   const [patientId, setPatientId] = useState<number | null>(null);
+  const [selectedDetails, setSelectedDetails] = useState<AppointmentDto | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,19 +64,15 @@ export default function PatientAppointments() {
     };
   }, []);
 
-  const myAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        status: apt.status,
-        date: apt.slotDate,
-        time: to12Hour(apt.startTime),
-        site: siteNames.get(apt.siteId) ?? `Site #${apt.siteId}`,
-      })),
-    [appointments, providerNames, serviceNames, siteNames]
-  );
+  const myAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    status: apt.status,
+    date: apt.slotDate,
+    time: to12Hour(apt.startTime),
+    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+  }));
 
   const handleCancel = async (appointmentId: number) => {
     try {
@@ -79,6 +83,32 @@ export default function PatientAppointments() {
       }
     } catch {
       // keep UI unchanged; no toast yet
+    }
+  };
+
+  const handleReschedule = async (appointment: AppointmentDto) => {
+    try {
+      const date = new Date(`${appointment.slotDate}T00:00:00`);
+      date.setDate(date.getDate() + 1);
+      const nextDate = date.toISOString().slice(0, 10);
+      const slots = await searchOpenSlots({
+        providerId: appointment.providerId,
+        serviceId: appointment.serviceId,
+        siteId: appointment.siteId,
+        date: nextDate,
+      });
+      const firstOpen = slots.find((s) => s.status.toLowerCase() === "open");
+      if (!firstOpen) return;
+      await rescheduleAppointment(appointment.appointmentId, {
+        newPublishedSlotId: firstOpen.pubSlotId,
+        reason: "Rescheduled by patient",
+      });
+      if (patientId != null) {
+        const refreshed = await searchAppointments({ patientId });
+        setAppointments(refreshed);
+      }
+    } catch {
+      // keep UI unchanged
     }
   };
 
@@ -118,18 +148,49 @@ export default function PatientAppointments() {
             <p className="text-sm text-muted-foreground mb-4">{apt.site}</p>
             {apt.status === "Booked" && (
               <div className="flex gap-2">
-                <button className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm">Reschedule</button>
+                <button
+                  onClick={() => {
+                    const apt = appointments.find((a) => a.appointmentId === apt.id);
+                    if (apt) void handleReschedule(apt);
+                  }}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Reschedule
+                </button>
                 <button
                   onClick={() => handleCancel(apt.id)}
                   className="px-4 py-2 border border-border text-foreground rounded-lg hover:bg-secondary transition-colors text-sm"
                 >
                   Cancel
                 </button>
+                <button
+                  onClick={async () => setSelectedDetails(await getAppointmentById(apt.id))}
+                  className="px-4 py-2 border border-border text-foreground rounded-lg hover:bg-secondary transition-colors text-sm"
+                >
+                  View
+                </button>
               </div>
             )}
           </div>
         ))}
       </div>
+      {selectedDetails && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-3">Appointment Details</h3>
+            <p className="text-sm text-muted-foreground">ID: {selectedDetails.appointmentId}</p>
+            <p className="text-sm text-muted-foreground">Date: {selectedDetails.slotDate}</p>
+            <p className="text-sm text-muted-foreground">Time: {selectedDetails.startTime}-{selectedDetails.endTime}</p>
+            <p className="text-sm text-muted-foreground">Status: {selectedDetails.status}</p>
+            <button
+              onClick={() => setSelectedDetails(null)}
+              className="mt-4 w-full px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

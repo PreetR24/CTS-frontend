@@ -53,7 +53,7 @@ utilization packs, reflow on leave approval
 Features:
 • Login, logout, password reset, lock/unlock
 • Roles & permissions 
-(Patient/FrontDesk/Provider/Nurse/Tech/Operations/Admin)
+(Patient/FrontDesk/Provider/Nurse/Operations/Admin)
 • Session/token lifecycle; inactivity timeouts
 • Immutable audit logs for read/write actions
 • User provisioning, deactivation, role mapping
@@ -253,7 +253,7 @@ ShiftTemplate
 • StartTime
 • EndTime
 • BreakMinutes
-• Role (Nurse/Tech/FrontDesk/Provider)
+• Role (Nurse/FrontDesk/Provider)
 • SiteID
 • Status
 Roster

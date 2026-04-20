@@ -6,7 +6,7 @@ const NurseGuard = () => {
 
   if (loading) return null;
 
-  if (role !== "Nurse" && role !== "Tech") {
+  if (role !== "Nurse") {
     return <Navigate to={landingPage ?? "/"} replace />;
   }
 

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { meApi } from "../../../api/authApi";
 import { fetchSites } from "../../../api/masterdataApi";
 import { searchOnCall, searchRosterAssignments, type OnCallDto, type RosterAssignmentDto } from "../../../api/operationsApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type ShiftRow = {
   id: number;
@@ -21,7 +21,7 @@ export default function StaffSchedule() {
       try {
         const [me, users, sites, assignments, onCalls] = await Promise.all([
           meApi(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchSites({ page: 1, pageSize: 250 }),
           searchRosterAssignments(),
           searchOnCall(),
@@ -48,7 +48,7 @@ export default function StaffSchedule() {
             id: 100000 + o.onCallId,
             date: o.date,
             shift: `${o.startTime}-${o.endTime}`,
-            site: siteNames.get(o.siteId) ?? `Site #${o.siteId}`,
+            site: siteNames.get(o.siteId) ?? "Unknown Site",
             status: o.status,
           }));
 
@@ -62,10 +62,7 @@ export default function StaffSchedule() {
     };
   }, []);
 
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => a.date.localeCompare(b.date)),
-    [rows]
-  );
+  const sortedRows = [...rows].sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <div className="p-6">

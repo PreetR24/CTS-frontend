@@ -7,6 +7,7 @@ export interface MeResponse {
   name: string;
   role: string;
   email: string;
+  providerId: number | null;
   landingPage: string;
 }
 

@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Clock, User, Activity, AlertCircle, CheckCircle2 } from "lucide-react";
-import { markAppointmentCheckedIn, searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import {
+  assignCheckInRoom,
+  createCheckIn,
+  moveCheckInToRoom,
+  searchCheckIns,
+  setCheckInWithProvider,
+  type CheckInDto,
+  updateCheckInStatus,
+} from "../../../api/checkinsApi";
 import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
+import { getChargesByAppointment } from "../../../api/frontdeskBillingApi";
+import { createResourceHold } from "../../../api/resourceHoldsApi";
 
 type AppointmentRow = {
   id: number;
@@ -28,23 +39,29 @@ export default function FrontDeskQueue() {
   const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
   const [providerNames, setProviderNames] = useState<Map<number, string>>(new Map());
   const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
+  const [checkInsByAppointment, setCheckInsByAppointment] = useState<Map<number, CheckInDto>>(new Map());
+  const [notice, setNotice] = useState<string | null>(null);
+  const [roomAssignAppointmentId, setRoomAssignAppointmentId] = useState<number | null>(null);
+  const [roomAssignValue, setRoomAssignValue] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const today = new Date().toISOString().slice(0, 10);
-        const [list, users, providers, services] = await Promise.all([
+        const [list, users, providers, services, checkIns] = await Promise.all([
           searchAppointments({ date: today }),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchProviders(),
           fetchServices(),
+          searchCheckIns(),
         ]);
         if (cancelled) return;
         setAppointments(list);
         setUserNames(new Map(users.map((u) => [u.userId, u.name])));
         setProviderNames(new Map(providers.map((p) => [p.providerId, p.name])));
         setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
+        setCheckInsByAppointment(new Map(checkIns.map((c) => [c.appointmentId, c])));
       } catch {
         if (!cancelled) setAppointments([]);
       }
@@ -54,19 +71,15 @@ export default function FrontDeskQueue() {
     };
   }, []);
 
-  const todayAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: userNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        date: apt.slotDate,
-        time: to12Hour(apt.startTime),
-        status: apt.status,
-      })),
-    [appointments, userNames, providerNames, serviceNames]
-  );
+  const todayAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: userNames.get(apt.patientId) ?? "Unknown Patient",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    date: apt.slotDate,
+    time: to12Hour(apt.startTime),
+    status: apt.status,
+  }));
   
   const statusCounts = {
     all: todayAppointments.length,
@@ -82,13 +95,86 @@ export default function FrontDeskQueue() {
 
   const handleCheckIn = async (appointmentId: number) => {
     try {
-      await markAppointmentCheckedIn(appointmentId);
+      await createCheckIn(appointmentId);
       const today = new Date().toISOString().slice(0, 10);
-      const refreshed = await searchAppointments({ date: today });
+      const [refreshed, checkIns] = await Promise.all([searchAppointments({ date: today }), searchCheckIns()]);
       setAppointments(refreshed);
+      setCheckInsByAppointment(new Map(checkIns.map((c) => [c.appointmentId, c])));
     } catch {
       // keep layout unchanged
     }
+  };
+
+  const handleMoveInRoom = async (appointmentId: number) => {
+    const checkIn = checkInsByAppointment.get(appointmentId);
+    if (!checkIn) return;
+    try {
+      await moveCheckInToRoom(checkIn.checkInId);
+      const checkIns = await searchCheckIns();
+      setCheckInsByAppointment(new Map(checkIns.map((c) => [c.appointmentId, c])));
+    } catch {
+      // keep UI state
+    }
+  };
+
+  const handleWithProvider = async (appointmentId: number) => {
+    const checkIn = checkInsByAppointment.get(appointmentId);
+    if (!checkIn) return;
+    try {
+      await setCheckInWithProvider(checkIn.checkInId);
+      const checkIns = await searchCheckIns();
+      setCheckInsByAppointment(new Map(checkIns.map((c) => [c.appointmentId, c])));
+    } catch {
+      // keep UI state
+    }
+  };
+
+  const handleAssignRoom = async (appointmentId: number) => {
+    const checkIn = checkInsByAppointment.get(appointmentId);
+    if (!checkIn) return;
+    const roomId = Number(roomAssignValue);
+    if (!roomId) return;
+    await assignCheckInRoom(checkIn.checkInId, roomId);
+    const checkIns = await searchCheckIns();
+    setCheckInsByAppointment(new Map(checkIns.map((c) => [c.appointmentId, c])));
+    setRoomAssignAppointmentId(null);
+    setRoomAssignValue("");
+  };
+
+  const openAssignRoomModal = (appointmentId: number) => {
+    setRoomAssignAppointmentId(appointmentId);
+    setRoomAssignValue("");
+  };
+
+  const closeAssignRoomModal = () => setRoomAssignAppointmentId(null);
+
+  const completeCheckIn = async (appointmentId: number) => {
+    const checkIn = checkInsByAppointment.get(appointmentId);
+    if (!checkIn) return;
+    await updateCheckInStatus(checkIn.checkInId, "Completed");
+    const checkIns = await searchCheckIns();
+    setCheckInsByAppointment(new Map(checkIns.map((c) => [c.appointmentId, c])));
+  };
+
+  const showCharges = async (appointmentId: number) => {
+    const charges = await getChargesByAppointment(appointmentId);
+    const total = charges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    setNotice(`Charges: ${charges.length} item(s), total ${total}`);
+  };
+
+  const holdRoomForAppointment = async (apt: AppointmentRow) => {
+    const checkIn = checkInsByAppointment.get(apt.id);
+    if (!checkIn?.roomAssigned) {
+      setNotice("Assign room first.");
+      return;
+    }
+    await createResourceHold({
+      resourceType: "Room",
+      resourceId: checkIn.roomAssigned,
+      startTime: `${apt.date}T${appointments.find((a) => a.appointmentId === apt.id)?.startTime ?? "00:00"}`,
+      endTime: `${apt.date}T${appointments.find((a) => a.appointmentId === apt.id)?.endTime ?? "23:59"}`,
+      reason: `Queue hold for appointment ${apt.id}`,
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -106,6 +192,7 @@ export default function FrontDeskQueue() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Queue Board</h1>
         <p className="text-sm text-muted-foreground mt-1">Real-time patient flow and status</p>
+        {notice && <p className="text-sm text-primary mt-2">{notice}</p>}
       </div>
 
       {/* Status Filter Cards */}
@@ -238,10 +325,49 @@ export default function FrontDeskQueue() {
                       </button>
                     )}
                     {apt.status === "CheckedIn" && (
-                      <button className="px-4 py-2 rounded-lg bg-[#a68fcf] text-white text-sm font-medium hover:shadow-md transition-all">
-                        In Room
+                      <>
+                        <button
+                          onClick={() => openAssignRoomModal(apt.id)}
+                          className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-all"
+                        >
+                          Assign Room
+                        </button>
+                        <button
+                          onClick={() => handleMoveInRoom(apt.id)}
+                          className="px-4 py-2 rounded-lg bg-[#a68fcf] text-white text-sm font-medium hover:shadow-md transition-all"
+                        >
+                          In Room
+                        </button>
+                      </>
+                    )}
+                    {apt.status === "InProgress" && (
+                      <button
+                        onClick={() => handleWithProvider(apt.id)}
+                        className="px-4 py-2 rounded-lg bg-[#95d4a8] text-white text-sm font-medium hover:shadow-md transition-all"
+                      >
+                        With Provider
                       </button>
                     )}
+                    {(apt.status === "Booked" || apt.status === "CheckedIn" || apt.status === "InProgress") && (
+                      <button
+                        onClick={() => void completeCheckIn(apt.id)}
+                        className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-all"
+                      >
+                        Complete
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void showCharges(apt.id)}
+                      className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-all"
+                    >
+                      Charges
+                    </button>
+                    <button
+                      onClick={() => void holdRoomForAppointment(apt)}
+                      className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-all"
+                    >
+                      Hold Room
+                    </button>
                     {apt.status === "Completed" && (
                       <CheckCircle2 className="w-8 h-8 text-[#95d4a8]" />
                     )}
@@ -252,6 +378,34 @@ export default function FrontDeskQueue() {
           })}
         </div>
       </div>
+      {roomAssignAppointmentId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-4">Assign Room</h3>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Room ID</label>
+            <input
+              type="number"
+              value={roomAssignValue}
+              onChange={(e) => setRoomAssignValue(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeAssignRoomModal}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleAssignRoom(roomAssignAppointmentId)}
+                className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+              >
+                Assign
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

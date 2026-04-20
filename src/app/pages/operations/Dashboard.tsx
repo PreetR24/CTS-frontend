@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { StatCard } from "../../components/StatCard";
 import { Users, Calendar, PhoneCall, TrendingUp } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 import {
   approveLeave,
   rejectLeave,
@@ -28,7 +28,7 @@ export default function OperationsDashboard() {
           searchRosters(),
           searchLeaveRequests(),
           searchOnCall(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
         ]);
         if (cancelled) return;
         setRosters(rosterList);
@@ -51,51 +51,81 @@ export default function OperationsDashboard() {
   const pendingLeaves = leaves.filter((l) => l.status === "Pending");
   const today = new Date().toISOString().slice(0, 10);
   const todayOnCalls = onCalls.filter((o) => o.date === today);
-  const todayShifts = useMemo(
-    () =>
-      todayOnCalls.flatMap((o) => {
-        const rows = [
-          {
-            id: o.onCallId * 10 + 1,
-            staff: userNames.get(o.primaryUserId) ?? `User #${o.primaryUserId}`,
-            role: o.department ?? "OnCall",
-            shift: `${o.startTime}-${o.endTime}`,
-            status: o.status,
-          },
-        ];
-        if (o.backupUserId) {
-          rows.push({
-            id: o.onCallId * 10 + 2,
-            staff: userNames.get(o.backupUserId) ?? `User #${o.backupUserId}`,
-            role: `${o.department ?? "OnCall"} Backup`,
-            shift: `${o.startTime}-${o.endTime}`,
-            status: o.status,
-          });
-        }
-        return rows;
-      }),
-    [todayOnCalls, userNames]
-  );
+  const todayShifts = todayOnCalls.flatMap((o) => {
+    const rows = [
+      {
+        id: o.onCallId * 10 + 1,
+        staff: userNames.get(o.primaryUserId) ?? "Team Member",
+        role: o.department ?? "OnCall",
+        shift: `${o.startTime}-${o.endTime}`,
+        status: o.status,
+      },
+    ];
+    if (o.backupUserId) {
+      rows.push({
+        id: o.onCallId * 10 + 2,
+        staff: userNames.get(o.backupUserId) ?? "Team Member",
+        role: `${o.department ?? "OnCall"} Backup`,
+        shift: `${o.startTime}-${o.endTime}`,
+        status: o.status,
+      });
+    }
+    return rows;
+  });
 
   const refreshLeaves = async () => {
     const leaveList = await searchLeaveRequests();
     setLeaves(leaveList);
   };
 
-  const weeklyStaffing = [
-    { day: "Mon", scheduled: 24, actual: 24, target: 25 },
-    { day: "Tue", scheduled: 26, actual: 25, target: 25 },
-    { day: "Wed", scheduled: 25, actual: 24, target: 25 },
-    { day: "Thu", scheduled: 27, actual: 27, target: 25 },
-    { day: "Fri", scheduled: 25, actual: 23, target: 25 },
-  ];
+  const weeklyStaffing = (() => {
+    const dayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const grouped = new Map<string, { scheduled: number; actual: number }>();
+    for (const item of onCalls) {
+      const d = new Date(item.date);
+      if (Number.isNaN(d.getTime())) continue;
+      const day = dayOrder[(d.getDay() + 6) % 7];
+      const current = grouped.get(day) ?? { scheduled: 0, actual: 0 };
+      current.scheduled += 1;
+      if (item.status.toLowerCase() !== "cancelled") current.actual += 1;
+      grouped.set(day, current);
+    }
+    return dayOrder.slice(0, 5).map((day) => ({
+      day,
+      scheduled: grouped.get(day)?.scheduled ?? 0,
+      actual: grouped.get(day)?.actual ?? 0,
+      target: 25,
+    }));
+  })();
 
-  const utilizationData = [
-    { name: "Week 1", utilization: 85 },
-    { name: "Week 2", utilization: 92 },
-    { name: "Week 3", utilization: 88 },
-    { name: "Week 4", utilization: 94 },
-  ];
+  const utilizationData = (() => {
+    const monthMap = new Map<string, { rosterCount: number; leaveCount: number }>();
+    for (const r of rosters) {
+      const key = r.periodStart.slice(0, 7);
+      if (!key) continue;
+      const current = monthMap.get(key) ?? { rosterCount: 0, leaveCount: 0 };
+      current.rosterCount += 1;
+      monthMap.set(key, current);
+    }
+    for (const l of leaves) {
+      const key = l.startDate.slice(0, 7);
+      if (!key) continue;
+      const current = monthMap.get(key) ?? { rosterCount: 0, leaveCount: 0 };
+      current.leaveCount += 1;
+      monthMap.set(key, current);
+    }
+    return Array.from(monthMap.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .slice(-4)
+      .map(([month, data], index) => {
+        const base = data.rosterCount * 10;
+        const penalty = data.leaveCount * 5;
+        return {
+          name: `Week ${index + 1}`,
+          utilization: Math.max(0, Math.min(100, base - penalty)),
+        };
+      });
+  })();
 
   return (
     <div className="p-6">
@@ -229,7 +259,7 @@ export default function OperationsDashboard() {
                   <div className="flex items-start justify-between mb-2">
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {userNames.get(leave.userId) ?? `User #${leave.userId}`}
+                        {userNames.get(leave.userId) ?? "Team Member"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">{leave.leaveType}</p>
                     </div>

@@ -17,7 +17,7 @@
 CREATE TABLE [User] (
     UserID      INT IDENTITY(1,1)   PRIMARY KEY,
     Name        NVARCHAR(150)       NOT NULL,
-    Role        NVARCHAR(50)        NOT NULL CHECK (Role IN ('Patient','FrontDesk','Provider','Nurse','Tech','Operations','Admin')),
+    Role        NVARCHAR(50)        NOT NULL CHECK (Role IN ('Patient','FrontDesk','Provider','Nurse','Operations','Admin')),
     Email       NVARCHAR(255)       NOT NULL UNIQUE,
     Phone       NVARCHAR(20),
     Status      NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive','Locked'))
@@ -242,7 +242,7 @@ CREATE TABLE ShiftTemplate (
     StartTime       TIME                NOT NULL,
     EndTime         TIME                NOT NULL,
     BreakMinutes    INT                 NOT NULL DEFAULT 0,
-    Role            NVARCHAR(50)        NOT NULL CHECK (Role IN ('Nurse','Tech','FrontDesk','Provider')),
+    Role            NVARCHAR(50)        NOT NULL CHECK (Role IN ('Nurse','FrontDesk','Provider')),
     SiteID          INT                 NOT NULL REFERENCES Site(SiteID),
     Status          NVARCHAR(20)        NOT NULL DEFAULT 'Active' CHECK (Status IN ('Active','Inactive'))
 );

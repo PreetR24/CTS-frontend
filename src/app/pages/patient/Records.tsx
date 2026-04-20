@@ -1,12 +1,53 @@
 import { FileText, Download } from "lucide-react";
+import { useEffect, useState } from "react";
+import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import { meApi } from "../../../api/authApi";
+import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
 
-const records = [
-  { id: 1, title: "Cardiology Report", date: "2026-03-15", provider: "Dr. Rajesh Kumar", type: "Lab Report" },
-  { id: 2, title: "ECG Results", date: "2026-02-20", provider: "Dr. Rajesh Kumar", type: "Test Result" },
-  { id: 3, title: "General Checkup", date: "2026-01-10", provider: "Dr. Priya Sharma", type: "Consultation Notes" },
-];
+type RecordRow = {
+  id: number;
+  title: string;
+  date: string;
+  provider: string;
+  type: string;
+};
 
 export default function PatientRecords() {
+  const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [providerNames, setProviderNames] = useState<Map<number, string>>(new Map());
+  const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await meApi();
+        const [list, providers, services] = await Promise.all([
+          searchAppointments({ patientId: me.userId }),
+          fetchProviders(),
+          fetchServices(),
+        ]);
+        if (cancelled) return;
+        setAppointments(list);
+        setProviderNames(new Map(providers.map((p) => [p.providerId, p.name])));
+        setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
+      } catch {
+        if (!cancelled) setAppointments([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const records: RecordRow[] = appointments.map((a) => ({
+    id: a.appointmentId,
+    title: serviceNames.get(a.serviceId) ?? "Unknown Service",
+    date: a.slotDate,
+    provider: providerNames.get(a.providerId) ?? "Unknown Provider",
+    type: "Consultation Notes",
+  }));
+
   return (
     <div className="p-6">
       <div className="mb-6">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "../components/Header";
 import { StatCard } from "../components/StatCard";
 import { Building2, Users, Calendar, Activity, Plus, Search } from "lucide-react";
@@ -57,26 +57,19 @@ export default function AdminDashboard() {
     { id: "services", label: "Services" },
   ];
 
-  const siteData = useMemo(
-    () =>
-      siteRows.map((site) => ({
-        name: site.name.includes(" - ") ? site.name.split(" - ")[1] ?? site.name : site.name,
-        rooms: site.rooms,
-      })),
-    [siteRows]
-  );
+  const siteData = siteRows.map((site) => ({
+    name: site.name.includes(" - ") ? site.name.split(" - ")[1] ?? site.name : site.name,
+    rooms: site.rooms,
+  }));
 
-  const roleData = useMemo(
-    () => [
-      { name: "Providers", value: userRows.filter((u) => u.role === "Provider").length, color: "#a8c4d4" },
-      { name: "Nurses", value: userRows.filter((u) => u.role === "Nurse").length, color: "#c4f0d4" },
-      { name: "Front Desk", value: userRows.filter((u) => u.role === "FrontDesk").length, color: "#f5e6d3" },
-      { name: "Admin", value: userRows.filter((u) => u.role === "Admin").length, color: "#d4c4f0" },
-    ],
-    [userRows]
-  );
+  const roleData = [
+    { name: "Providers", value: userRows.filter((u) => u.role === "Provider").length, color: "#a8c4d4" },
+    { name: "Nurses", value: userRows.filter((u) => u.role === "Nurse").length, color: "#c4f0d4" },
+    { name: "Front Desk", value: userRows.filter((u) => u.role === "FrontDesk").length, color: "#f5e6d3" },
+    { name: "Admin", value: userRows.filter((u) => u.role === "Admin").length, color: "#d4c4f0" },
+  ];
 
-  const totalRooms = useMemo(() => siteRows.reduce((sum, site) => sum + site.rooms, 0), [siteRows]);
+  const totalRooms = siteRows.reduce((sum, site) => sum + site.rooms, 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -319,7 +312,6 @@ export default function AdminDashboard() {
                       <option>Provider</option>
                       <option>Nurse</option>
                       <option>FrontDesk</option>
-                      <option>Tech</option>
                       <option>Admin</option>
                     </select>
                   </div>

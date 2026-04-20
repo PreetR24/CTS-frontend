@@ -1,6 +1,25 @@
 import { User, Edit } from "lucide-react";
+import { useEffect, useState } from "react";
+import { meApi, type MeResponse } from "../../../api/authApi";
 
 export default function PatientProfile() {
+  const [me, setMe] = useState<MeResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await meApi();
+        if (!cancelled) setMe(data);
+      } catch {
+        if (!cancelled) setMe(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -15,8 +34,8 @@ export default function PatientProfile() {
               <User className="w-10 h-10 text-[#e8b8d4]" />
             </div>
             <div>
-              <p className="text-lg font-medium text-foreground">Anjali Mehta</p>
-              <p className="text-sm text-muted-foreground">Patient ID: P00123</p>
+              <p className="text-lg font-medium text-foreground">{me?.name ?? "Patient"}</p>
+              <p className="text-sm text-muted-foreground">Patient ID: P{String(me?.userId ?? 0).padStart(5, "0")}</p>
             </div>
           </div>
 
@@ -24,26 +43,26 @@ export default function PatientProfile() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">Email</label>
-                <p className="text-sm text-foreground">anjali.mehta@gmail.com</p>
+                <p className="text-sm text-foreground">{me?.email ?? "Not available"}</p>
               </div>
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">Phone</label>
-                <p className="text-sm text-foreground">+91 98765 43210</p>
+                <p className="text-sm text-foreground">Not available</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">Date of Birth</label>
-                <p className="text-sm text-foreground">January 15, 1985</p>
+                <p className="text-sm text-foreground">Not available</p>
               </div>
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">Blood Group</label>
-                <p className="text-sm text-foreground">A+</p>
+                <p className="text-sm text-foreground">Not available</p>
               </div>
             </div>
             <div>
               <label className="block text-xs text-muted-foreground mb-1">Address</label>
-              <p className="text-sm text-foreground">123 Main Street, Indiranagar, Bangalore - 560038</p>
+              <p className="text-sm text-foreground">Not available</p>
             </div>
           </div>
 

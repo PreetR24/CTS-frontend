@@ -1,12 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Search, Edit, Trash2, Stethoscope } from "lucide-react";
-import { fetchProviders, fetchServicesByProvider } from "../../../api/masterdataApi";
+import {
+  activateProvider,
+  createProvider,
+  deactivateProvider,
+  fetchProviders,
+  fetchServices,
+  fetchServicesByProvider,
+  updateProvider,
+} from "../../../api/masterdataApi";
 import { mapProviderRows, type AdminProviderRow } from "../../../api/adminViewMappers";
 
 export default function AdminProviders() {
   const [showModal, setShowModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [providers, setProviders] = useState<AdminProviderRow[]>([]);
+  const [editProviderId, setEditProviderId] = useState<number | null>(null);
+  const [editProviderName, setEditProviderName] = useState("");
+  const [newProviderName, setNewProviderName] = useState("");
+  const [newProviderSpecialty, setNewProviderSpecialty] = useState("General");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -40,15 +53,60 @@ export default function AdminProviders() {
     };
   }, []);
 
-  const filteredProviders = useMemo(
-    () =>
-      providers.filter(
-        (p) =>
-          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (p.specialty && p.specialty.toLowerCase().includes(searchQuery.toLowerCase()))
-      ),
-    [providers, searchQuery]
+  const filteredProviders = providers.filter(
+    (p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.specialty && p.specialty.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  const openCreateModal = () => setShowModal(true);
+  const closeCreateModal = () => setShowModal(false);
+  const openEditModal = (providerId: number, name: string) => {
+    setEditProviderId(providerId);
+    setEditProviderName(name);
+    setShowEditModal(true);
+  };
+  const closeEditModal = () => setShowEditModal(false);
+
+  const deactivateProviderRow = async (providerId: number) => {
+    await deactivateProvider(providerId);
+  };
+
+  const activateProviderRow = async (providerId: number) => {
+    await activateProvider(providerId);
+  };
+
+  const createProviderFromModal = async () => {
+    if (!newProviderName.trim()) return;
+    const created = await createProvider({
+      name: newProviderName.trim(),
+      specialty: newProviderSpecialty.trim() || undefined,
+    });
+    const services = await fetchServices();
+    setProviders((prev) => [
+      ...prev,
+      {
+        id: created.providerId,
+        name: created.name,
+        specialty: created.specialty ?? "—",
+        email: created.contactInfo ?? "-",
+        serviceCount: 0,
+      },
+    ]);
+    void services;
+    setNewProviderName("");
+    setNewProviderSpecialty("General");
+    setShowModal(false);
+  };
+
+  const saveEditedProvider = async () => {
+    if (editProviderId == null || !editProviderName.trim()) return;
+    await updateProvider(editProviderId, { name: editProviderName.trim() });
+    setProviders((prev) =>
+      prev.map((p) => (p.id === editProviderId ? { ...p, name: editProviderName.trim() } : p))
+    );
+    setShowEditModal(false);
+  };
 
   return (
     <div className="p-6">
@@ -71,7 +129,7 @@ export default function AdminProviders() {
             />
           </div>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -123,11 +181,23 @@ export default function AdminProviders() {
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button className="p-2 hover:bg-secondary rounded-lg transition-colors">
+                      <button
+                        className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                        onClick={() => openEditModal(provider.id, provider.name)}
+                      >
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
                       <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2
+                          className="w-4 h-4 text-destructive"
+                          onClick={() => void deactivateProviderRow(provider.id)}
+                        />
+                      </button>
+                      <button
+                        onClick={() => void activateProviderRow(provider.id)}
+                        className="text-xs px-2 py-1 border border-border rounded"
+                      >
+                        Activate
                       </button>
                     </div>
                   </td>
@@ -155,6 +225,8 @@ export default function AdminProviders() {
                 <input
                   type="text"
                   placeholder="Dr. Firstname Lastname"
+                  value={newProviderName}
+                  onChange={(e) => setNewProviderName(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -163,6 +235,8 @@ export default function AdminProviders() {
                 <input
                   type="text"
                   placeholder="e.g., Cardiology, Pediatrics"
+                  value={newProviderSpecialty}
+                  onChange={(e) => setNewProviderSpecialty(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -185,16 +259,44 @@ export default function AdminProviders() {
             </div>
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeCreateModal}
                 className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => void createProviderFromModal()}
                 className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
               >
                 Create Provider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showEditModal && editProviderId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
+            <h3 className="text-base font-medium text-foreground mb-4">Edit Provider</h3>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Provider Name</label>
+            <input
+              type="text"
+              value={editProviderName}
+              onChange={(e) => setEditProviderName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeEditModal}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void saveEditedProvider()}
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+              >
+                Save
               </button>
             </div>
           </div>

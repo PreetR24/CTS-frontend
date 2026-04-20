@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle, User } from "lucide-react";
-import { markAppointmentCheckedIn, searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import { createCheckIn } from "../../../api/checkinsApi";
 import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
-import { fetchUsers } from "../../../api/usersApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type AppointmentRow = {
   id: number;
@@ -33,7 +34,7 @@ export default function FrontDeskCheckIn() {
         const today = new Date().toISOString().slice(0, 10);
         const [list, users, providers, services] = await Promise.all([
           searchAppointments({ date: today, status: "Booked" }),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchProviders(),
           fetchServices(),
         ]);
@@ -51,21 +52,17 @@ export default function FrontDeskCheckIn() {
     };
   }, []);
 
-  const todayAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: userNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        time: to12Hour(apt.startTime),
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-      })),
-    [appointments, userNames, providerNames, serviceNames]
-  );
+  const todayAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: userNames.get(apt.patientId) ?? "Unknown Patient",
+    time: to12Hour(apt.startTime),
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+  }));
 
   const handleCheckIn = async (appointmentId: number) => {
     try {
-      await markAppointmentCheckedIn(appointmentId);
+      await createCheckIn(appointmentId);
       const today = new Date().toISOString().slice(0, 10);
       const refreshed = await searchAppointments({ date: today, status: "Booked" });
       setAppointments(refreshed);

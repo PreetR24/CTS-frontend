@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Calendar, Clock, MapPin } from "lucide-react";
-import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import {
+  getAppointmentById,
+  markAppointmentCompleted,
+  markAppointmentNoShow,
+  searchAppointments,
+  type AppointmentDto,
+} from "../../../api/appointmentsApi";
+import { createOutcome, markOutcomeNoShow } from "../../../api/outcomesApi";
 import { meApi } from "../../../api/authApi";
 import { fetchProviders, fetchServices, fetchSites } from "../../../api/masterdataApi";
-import { fetchUsers } from "../../../api/usersApi";
 
 type AppointmentRow = {
   id: number;
@@ -29,14 +35,17 @@ export default function ProviderAppointments() {
   const [siteNames, setSiteNames] = useState<Map<number, string>>(new Map());
   const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
   const [providerId, setProviderId] = useState<number | null>(null);
+  const [selectedDetails, setSelectedDetails] = useState<AppointmentDto | null>(null);
+  const [outcomeAppointmentId, setOutcomeAppointmentId] = useState<number | null>(null);
+  const [clinicalNotesInput, setClinicalNotesInput] = useState("");
+  const [treatmentPlanInput, setTreatmentPlanInput] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [me, users, providers, services, sites] = await Promise.all([
+        const [me, providers, services, sites] = await Promise.all([
           meApi(),
-          fetchUsers({ page: 1, pageSize: 500 }),
           fetchProviders(),
           fetchServices(),
           fetchSites({ page: 1, pageSize: 250 }),
@@ -44,8 +53,7 @@ export default function ProviderAppointments() {
 
         if (cancelled) return;
 
-        const currentUser = users.find((u) => u.email.toLowerCase() === me.email.toLowerCase());
-        const pid = currentUser?.providerId ?? null;
+        const pid = me.providerId ?? null;
         setProviderId(pid);
         if (pid == null) {
           setAppointments([]);
@@ -56,7 +64,7 @@ export default function ProviderAppointments() {
         if (cancelled) return;
         setAppointments(list);
 
-        setPatientNames(new Map(users.map((u) => [u.userId, u.name])));
+        setPatientNames(new Map());
         setSiteNames(new Map(sites.map((s) => [s.siteId, s.name])));
         setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
         void providers;
@@ -72,19 +80,56 @@ export default function ProviderAppointments() {
     };
   }, []);
 
-  const myAppointments = useMemo<AppointmentRow[]>(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: patientNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        date: apt.slotDate,
-        time: to12Hour(apt.startTime),
-        site: siteNames.get(apt.siteId) ?? `Site #${apt.siteId}`,
-        status: apt.status,
-      })),
-    [appointments, patientNames, serviceNames, siteNames]
-  );
+  const myAppointments: AppointmentRow[] = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    date: apt.slotDate,
+    time: to12Hour(apt.startTime),
+    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+    status: apt.status,
+  }));
+
+  const openAppointmentDetails = async (appointmentId: number) => {
+    const details = await getAppointmentById(appointmentId);
+    setSelectedDetails(details);
+  };
+
+  const markCompleted = async (appointmentId: number) => {
+    await markAppointmentCompleted(appointmentId);
+    if (providerId != null) {
+      const refreshed = await searchAppointments({ providerId });
+      setAppointments(refreshed);
+    }
+  };
+
+  const openOutcomeModal = (appointmentId: number) => {
+    setOutcomeAppointmentId(appointmentId);
+    setClinicalNotesInput("");
+    setTreatmentPlanInput("");
+  };
+
+  const markNoShow = async (appointmentId: number) => {
+    await markAppointmentNoShow(appointmentId);
+    await markOutcomeNoShow(appointmentId, { reason: "Marked by provider" });
+    if (providerId != null) {
+      const refreshed = await searchAppointments({ providerId });
+      setAppointments(refreshed);
+    }
+  };
+
+  const closeDetailsModal = () => setSelectedDetails(null);
+  const closeOutcomeModal = () => setOutcomeAppointmentId(null);
+
+  const saveOutcomeFromModal = async () => {
+    if (outcomeAppointmentId == null) return;
+    if (!clinicalNotesInput.trim() && !treatmentPlanInput.trim()) return;
+    await createOutcome(outcomeAppointmentId, {
+      clinicalNotes: clinicalNotesInput.trim() || undefined,
+      treatmentPlan: treatmentPlanInput.trim() || undefined,
+    });
+    setOutcomeAppointmentId(null);
+  };
 
   return (
     <div className="p-6">
@@ -135,9 +180,36 @@ export default function ProviderAppointments() {
                     </span>
                   </td>
                   <td className="py-4 px-4">
-                    <button className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs">
+                    <button
+                      onClick={() => void openAppointmentDetails(apt.id)}
+                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs"
+                    >
                       View Details
                     </button>
+                    {(apt.status === "Booked" || apt.status === "CheckedIn") && (
+                      <button
+                        onClick={() => void markCompleted(apt.id)}
+                        className="ml-2 px-3 py-1.5 rounded-lg bg-[#95d4a8] text-white text-xs"
+                      >
+                        Complete
+                      </button>
+                    )}
+                    {(apt.status === "Booked" || apt.status === "CheckedIn") && (
+                      <button
+                        onClick={() => openOutcomeModal(apt.id)}
+                        className="ml-2 px-3 py-1.5 rounded-lg border border-border text-xs"
+                      >
+                        Add Outcome
+                      </button>
+                    )}
+                    {apt.status === "Booked" && (
+                      <button
+                        onClick={() => void markNoShow(apt.id)}
+                        className="ml-2 px-3 py-1.5 rounded-lg border border-border text-xs"
+                      >
+                        No-Show
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -145,6 +217,63 @@ export default function ProviderAppointments() {
           </table>
         </div>
       </div>
+      {selectedDetails && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-3">Appointment Details</h3>
+            <p className="text-sm text-muted-foreground">ID: {selectedDetails.appointmentId}</p>
+            <p className="text-sm text-muted-foreground">Patient: {selectedDetails.patientId}</p>
+            <p className="text-sm text-muted-foreground">Provider: {selectedDetails.providerId}</p>
+            <p className="text-sm text-muted-foreground">Date: {selectedDetails.slotDate}</p>
+            <p className="text-sm text-muted-foreground">Time: {selectedDetails.startTime}-{selectedDetails.endTime}</p>
+            <p className="text-sm text-muted-foreground">Status: {selectedDetails.status}</p>
+            <button
+              onClick={closeDetailsModal}
+              className="mt-4 w-full px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+      {outcomeAppointmentId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-4">Add Outcome</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Clinical Notes</label>
+                <textarea
+                  rows={3}
+                  value={clinicalNotesInput}
+                  onChange={(e) => setClinicalNotesInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Treatment Plan</label>
+                <textarea
+                  rows={3}
+                  value={treatmentPlanInput}
+                  onChange={(e) => setTreatmentPlanInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeOutcomeModal}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button onClick={() => void saveOutcomeFromModal()} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90">
+                Save Outcome
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

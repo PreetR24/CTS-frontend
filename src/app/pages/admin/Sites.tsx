@@ -1,12 +1,23 @@
 import { useEffect, useState } from "react";
 import { Plus, Search, Edit, Trash2, MapPin } from "lucide-react";
-import { fetchRooms, fetchSites } from "../../../api/masterdataApi";
+import {
+  activateSite,
+  createSite,
+  deactivateSite,
+  fetchRooms,
+  fetchSites,
+  updateSite,
+} from "../../../api/masterdataApi";
 import { mapSiteRows, type AdminSiteRow } from "../../../api/adminViewMappers";
 
 export default function AdminSites() {
   const [showModal, setShowModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sites, setSites] = useState<AdminSiteRow[]>([]);
+  const [editSiteId, setEditSiteId] = useState<number | null>(null);
+  const [editSiteName, setEditSiteName] = useState("");
+  const [newSiteName, setNewSiteName] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -38,6 +49,49 @@ export default function AdminSites() {
       site.location.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const openCreateModal = () => setShowModal(true);
+  const closeCreateModal = () => setShowModal(false);
+  const openEditModal = (siteId: number, siteName: string) => {
+    setEditSiteId(siteId);
+    setEditSiteName(siteName);
+    setShowEditModal(true);
+  };
+  const closeEditModal = () => setShowEditModal(false);
+
+  const deactivateSiteRow = async (siteId: number) => {
+    await deactivateSite(siteId);
+    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, status: "Inactive" } : s)));
+  };
+
+  const activateSiteRow = async (siteId: number) => {
+    await activateSite(siteId);
+    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, status: "Active" } : s)));
+  };
+
+  const createSiteFromModal = async () => {
+    if (!newSiteName.trim()) return;
+    const created = await createSite({ name: newSiteName.trim(), timezone: "Asia/Kolkata" });
+    setSites((prev) => [
+      ...prev,
+      {
+        id: created.siteId,
+        name: created.name,
+        location: created.addressJson ?? "N/A",
+        rooms: 0,
+        status: created.status,
+      },
+    ]);
+    setNewSiteName("");
+    setShowModal(false);
+  };
+
+  const saveEditedSite = async () => {
+    if (editSiteId == null || !editSiteName.trim()) return;
+    await updateSite(editSiteId, { name: editSiteName.trim() });
+    setSites((prev) => prev.map((s) => (s.id === editSiteId ? { ...s, name: editSiteName.trim() } : s)));
+    setShowEditModal(false);
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -59,7 +113,7 @@ export default function AdminSites() {
             />
           </div>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -113,11 +167,23 @@ export default function AdminSites() {
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button className="p-2 hover:bg-secondary rounded-lg transition-colors">
+                      <button
+                        className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                        onClick={() => openEditModal(site.id, site.name)}
+                      >
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
                       <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2
+                          className="w-4 h-4 text-destructive"
+                          onClick={() => void deactivateSiteRow(site.id)}
+                        />
+                      </button>
+                      <button
+                        onClick={() => void activateSiteRow(site.id)}
+                        className="text-xs px-2 py-1 border border-border rounded"
+                      >
+                        Activate
                       </button>
                     </div>
                   </td>
@@ -145,6 +211,8 @@ export default function AdminSites() {
                 <input
                   type="text"
                   placeholder="Apollo Clinic - Location"
+                  value={newSiteName}
+                  onChange={(e) => setNewSiteName(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -176,16 +244,44 @@ export default function AdminSites() {
             </div>
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeCreateModal}
                 className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => void createSiteFromModal()}
                 className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
               >
                 Create Site
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showEditModal && editSiteId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
+            <h3 className="text-base font-medium text-foreground mb-4">Edit Site</h3>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Site Name</label>
+            <input
+              type="text"
+              value={editSiteName}
+              onChange={(e) => setEditSiteName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeEditModal}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void saveEditedSite()}
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+              >
+                Save
               </button>
             </div>
           </div>

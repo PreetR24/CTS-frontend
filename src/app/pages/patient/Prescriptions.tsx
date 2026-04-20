@@ -1,47 +1,75 @@
 import { Pill, Calendar, RefreshCw, Download, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import { meApi } from "../../../api/authApi";
+import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
+import { fetchNotifications, type NotificationDto } from "../../../api/notificationsApi";
 
-const prescriptions = [
-  { 
-    id: 1, 
-    medication: "Atorvastatin 10mg", 
-    prescribedBy: "Dr. Rajesh Kumar", 
-    date: "2026-03-15", 
-    dosage: "Once daily", 
-    timing: "After dinner",
-    refills: 2,
-    quantity: "30 tablets",
-    status: "Active",
-    instructions: "Take with water. Avoid grapefruit juice."
-  },
-  { 
-    id: 2, 
-    medication: "Metformin 500mg", 
-    prescribedBy: "Dr. Rajesh Kumar", 
-    date: "2026-02-20", 
-    dosage: "Twice daily", 
-    timing: "After meals",
-    refills: 1,
-    quantity: "60 tablets",
-    status: "Active",
-    instructions: "Take after breakfast and dinner."
-  },
-  { 
-    id: 3, 
-    medication: "Vitamin D3 60000IU", 
-    prescribedBy: "Dr. Priya Sharma", 
-    date: "2026-01-10", 
-    dosage: "Once weekly", 
-    timing: "Any time",
-    refills: 0,
-    quantity: "4 capsules",
-    status: "Refill Needed",
-    instructions: "Take on Sunday morning."
-  },
-];
+type PrescriptionRow = {
+  id: number;
+  medication: string;
+  prescribedBy: string;
+  date: string;
+  dosage: string;
+  timing: string;
+  refills: number;
+  quantity: string;
+  status: string;
+  instructions: string;
+};
 
 export default function PatientPrescriptions() {
-  const [selectedPrescription, setSelectedPrescription] = useState<any>(null);
+  const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionRow | null>(null);
+  const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [services, setServices] = useState<Map<number, string>>(new Map());
+  const [providers, setProviders] = useState<Map<number, string>>(new Map());
+  const [notifications, setNotifications] = useState<NotificationDto[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await meApi();
+        const [apptList, serviceList, providerList, notifList] = await Promise.all([
+          searchAppointments({ patientId: me.userId }),
+          fetchServices(),
+          fetchProviders(),
+          fetchNotifications(),
+        ]);
+        if (cancelled) return;
+        setAppointments(apptList);
+        setServices(new Map(serviceList.map((s) => [s.serviceId, s.name])));
+        setProviders(new Map(providerList.map((p) => [p.providerId, p.name])));
+        setNotifications(notifList);
+      } catch {
+        if (!cancelled) {
+          setAppointments([]);
+          setNotifications([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const prescriptions: PrescriptionRow[] = appointments.map((a) => {
+    const reminder = notifications.find((n) =>
+      n.message.toLowerCase().includes(String(a.appointmentId))
+    );
+    return {
+      id: a.appointmentId,
+      medication: services.get(a.serviceId) ?? "Unknown Service",
+      prescribedBy: providers.get(a.providerId) ?? "Unknown Provider",
+      date: a.slotDate,
+      dosage: "As advised",
+      timing: "As prescribed",
+      refills: 0,
+      quantity: "N/A",
+      status: a.status === "Completed" ? "Active" : "Refill Needed",
+      instructions: reminder?.message ?? "Follow provider instructions.",
+    };
+  });
 
   const getStatusColor = (status: string) => {
     switch(status) {

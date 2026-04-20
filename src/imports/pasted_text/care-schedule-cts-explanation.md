@@ -62,7 +62,7 @@ The system enforces a **unique constraint** on `(ProviderId, ServiceId)` so you 
 
 ### Users & Roles
 
-Every person in the system is a `User` with one of 7 roles: `Patient`, `FrontDesk`, `Provider`, `Nurse`, `Tech`, `Operations`, `Admin`. [0-cite-7](#0-cite-7) 
+Every person in the system is a `User` with one of 6 roles: `Patient`, `FrontDesk`, `Provider`, `Nurse`, `Operations`, `Admin`. [0-cite-7](#0-cite-7) 
 
 ### Login Flow
 

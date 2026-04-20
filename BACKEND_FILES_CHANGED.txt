@@ -18,7 +18,7 @@ Session: Auth / Phase 2 (GET /auth/me, GetMe)
    - Implemented GetMe(int userId) with user load, inactive/locked checks,
      returns MeResponseDto.
    - Added private static ResolveLandingPage(string role) mapping roles to
-     SPA paths (Admin, Provider, FrontDesk, Nurse, Tech, Patient, Operations).
+     SPA paths (Admin, Provider, FrontDesk, Nurse, Patient, Operations).
 
 4. backend\CareSchedule.API\Controllers\AuthController.cs
    - Added [Authorize] GET auth/me endpoint returning ApiResponse<MeResponseDto>.

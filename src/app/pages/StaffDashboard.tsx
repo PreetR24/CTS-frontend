@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "../components/Header";
 import { StatCard } from "../components/StatCard";
 import { Calendar, Clock, Users, CheckCircle } from "lucide-react";
@@ -66,18 +66,14 @@ export default function StaffDashboard() {
     };
   }, []);
 
-  const todayAppointments = useMemo(
-    () =>
-      appointments.map((apt) => ({
-        id: apt.appointmentId,
-        patientName: patientNames.get(apt.patientId) ?? `Patient #${apt.patientId}`,
-        service: serviceNames.get(apt.serviceId) ?? `Service #${apt.serviceId}`,
-        provider: providerNames.get(apt.providerId) ?? `Provider #${apt.providerId}`,
-        time: apt.startTime,
-        status: apt.status,
-      })),
-    [appointments, patientNames, serviceNames, providerNames]
-  );
+  const todayAppointments = appointments.map((apt) => ({
+    id: apt.appointmentId,
+    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
+    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    time: apt.startTime,
+    status: apt.status,
+  }));
 
   return (
     <div className="min-h-screen bg-background">

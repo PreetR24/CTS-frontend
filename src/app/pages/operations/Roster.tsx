@@ -1,8 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Calendar, Users, Filter } from "lucide-react";
 import { fetchSites } from "../../../api/masterdataApi";
-import { searchOnCall, type OnCallDto } from "../../../api/operationsApi";
-import { fetchUsers } from "../../../api/usersApi";
+import {
+  createOnCall,
+  createRoster,
+  createRosterAssignment,
+  deleteRoster,
+  getRosterById,
+  markRosterAssignmentAbsent,
+  publishRoster,
+  searchOnCall,
+  searchRosterAssignments,
+  searchRosters,
+  swapRosterAssignment,
+  updateRoster,
+  type OnCallDto,
+} from "../../../api/operationsApi";
+import {
+  createShiftTemplate,
+  deleteShiftTemplate,
+  getShiftTemplateById,
+  searchShiftTemplates,
+  updateShiftTemplate,
+  type ShiftTemplateDto,
+} from "../../../api/operationsPlanningApi";
+import { fetchUsers, type UserDto } from "../../../api/usersApi";
+import { meApi } from "../../../api/authApi";
 
 export default function OperationsRoster() {
   const [showModal, setShowModal] = useState(false);
@@ -11,6 +34,15 @@ export default function OperationsRoster() {
   const [onCalls, setOnCalls] = useState<OnCallDto[]>([]);
   const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
   const [sites, setSites] = useState<Array<{ id: number; name: string }>>([]);
+  const [users, setUsers] = useState<Array<{ userId: number; name: string; role: string }>>([]);
+  const [formUserId, setFormUserId] = useState<number | null>(null);
+  const [formBackupUserId, setFormBackupUserId] = useState<number | null>(null);
+  const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
+  const [formSiteId, setFormSiteId] = useState<number | null>(null);
+  const [formShift, setFormShift] = useState("Morning (8AM-4PM)");
+  const [shiftTemplates, setShiftTemplates] = useState<ShiftTemplateDto[]>([]);
+  const [rosterIds, setRosterIds] = useState<number[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -18,15 +50,22 @@ export default function OperationsRoster() {
     let cancelled = false;
     (async () => {
       try {
-        const [onCallList, users, siteList] = await Promise.all([
+        const [onCallList, users, siteList, templates] = await Promise.all([
           searchOnCall(),
-          fetchUsers({ page: 1, pageSize: 500 }),
+          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
           fetchSites({ page: 1, pageSize: 250 }),
+          searchShiftTemplates(),
         ]);
         if (cancelled) return;
         setOnCalls(onCallList);
         setUserNames(new Map(users.map((u) => [u.userId, u.name])));
+        setUsers(users.map((u) => ({ userId: u.userId, name: u.name, role: u.role })));
         setSites(siteList.map((s) => ({ id: s.siteId, name: s.name })));
+        setShiftTemplates(templates);
+        const rosterList = await searchRosters().catch(() => []);
+        setRosterIds(rosterList.map((r) => r.rosterId));
+        setFormSiteId(siteList[0]?.siteId ?? null);
+        setFormUserId(users[0]?.userId ?? null);
       } catch {
         if (!cancelled) {
           setOnCalls([]);
@@ -39,37 +78,33 @@ export default function OperationsRoster() {
     };
   }, []);
 
-  const shifts = useMemo(
-    () =>
-      onCalls
-        .filter((o) => selectedSite === "all" || String(o.siteId) === selectedSite)
-        .flatMap((o) => {
-          const base = [
-            {
-              id: o.onCallId * 10 + 1,
-              date: o.date,
-              staff: userNames.get(o.primaryUserId) ?? `User #${o.primaryUserId}`,
-              role: o.department ?? "OnCall",
-              shift: `${o.startTime}-${o.endTime}`,
-              siteId: o.siteId,
-              status: o.status,
-            },
-          ];
-          if (o.backupUserId) {
-            base.push({
-              id: o.onCallId * 10 + 2,
-              date: o.date,
-              staff: userNames.get(o.backupUserId) ?? `User #${o.backupUserId}`,
-              role: `${o.department ?? "OnCall"} Backup`,
-              shift: `${o.startTime}-${o.endTime}`,
-              siteId: o.siteId,
-              status: o.status,
-            });
-          }
-          return base;
-        }),
-    [onCalls, selectedSite, userNames]
-  );
+  const shifts = onCalls
+    .filter((o) => selectedSite === "all" || String(o.siteId) === selectedSite)
+    .flatMap((o) => {
+      const base = [
+        {
+          id: o.onCallId * 10 + 1,
+          date: o.date,
+          staff: userNames.get(o.primaryUserId) ?? "Team Member",
+          role: o.department ?? "OnCall",
+          shift: `${o.startTime}-${o.endTime}`,
+          siteId: o.siteId,
+          status: o.status,
+        },
+      ];
+      if (o.backupUserId) {
+        base.push({
+          id: o.onCallId * 10 + 2,
+          date: o.date,
+          staff: userNames.get(o.backupUserId) ?? "Team Member",
+          role: `${o.department ?? "OnCall"} Backup`,
+          shift: `${o.startTime}-${o.endTime}`,
+          siteId: o.siteId,
+          status: o.status,
+        });
+      }
+      return base;
+    });
 
   const getRosterByDay = (day: string) =>
     shifts.filter((s) => {
@@ -77,11 +112,23 @@ export default function OperationsRoster() {
       return weekday === day;
     });
 
+  const refreshOnCalls = async () => {
+    const onCallList = await searchOnCall(selectedSite === "all" ? undefined : { siteId: Number(selectedSite) });
+    setOnCalls(onCallList);
+  };
+
+  const parseShift = (shift: string): { start: string; end: string } => {
+    if (shift.startsWith("Morning")) return { start: "08:00", end: "16:00" };
+    if (shift.startsWith("Evening")) return { start: "16:00", end: "23:59" };
+    return { start: "00:00", end: "08:00" };
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Roster Management</h1>
         <p className="text-sm text-muted-foreground mt-1">Plan and manage staff schedules</p>
+        {notice && <p className="text-sm text-primary mt-2">{notice}</p>}
       </div>
 
       {/* Filters */}
@@ -114,6 +161,104 @@ export default function OperationsRoster() {
             <option key={site.id} value={site.id}>{site.name}</option>
           ))}
         </select>
+        <button
+          onClick={async () => {
+            if (!formSiteId) return;
+            const t = await createShiftTemplate({
+              name: "General Morning",
+              startTime: "08:00",
+              endTime: "16:00",
+              breakMinutes: 30,
+              role: "General",
+              siteId: formSiteId,
+            });
+            setShiftTemplates((prev) => [t, ...prev]);
+          }}
+          className="px-4 py-2.5 rounded-lg border border-border text-sm"
+        >
+          Add Shift Template
+        </button>
+      </div>
+      <div className="mb-6 p-4 border border-border rounded-xl bg-card">
+        <p className="text-sm font-medium text-foreground mb-2">Shift Templates</p>
+        <div className="space-y-2">
+          {shiftTemplates.slice(0, 5).map((t) => (
+            <div key={t.shiftTemplateId} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>#{t.shiftTemplateId}</span>
+              <span>{t.name}</span>
+              <span>{t.startTime}-{t.endTime}</span>
+              <button
+                className="px-2 py-1 border border-border rounded"
+                onClick={async () => {
+                  const detail = await getShiftTemplateById(t.shiftTemplateId);
+                  setNotice(
+                    `Template ${detail.name} ${detail.startTime}-${detail.endTime} (${detail.role})`
+                  );
+                }}
+              >
+                Detail
+              </button>
+              <button
+                className="px-2 py-1 border border-border rounded"
+                onClick={async () => {
+                  await updateShiftTemplate(t.shiftTemplateId, { breakMinutes: t.breakMinutes + 5 });
+                  setShiftTemplates(await searchShiftTemplates());
+                }}
+              >
+                +5m break
+              </button>
+              <button
+                className="px-2 py-1 border border-border rounded"
+                onClick={async () => {
+                  await deleteShiftTemplate(t.shiftTemplateId);
+                  setShiftTemplates((prev) => prev.filter((x) => x.shiftTemplateId !== t.shiftTemplateId));
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mb-6 p-4 border border-border rounded-xl bg-card">
+        <p className="text-sm font-medium text-foreground mb-2">Rosters</p>
+        <div className="space-y-2">
+          {rosterIds.slice(0, 10).map((id) => (
+            <div key={id} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>#{id}</span>
+              <button
+                className="px-2 py-1 border border-border rounded"
+                onClick={async () => {
+                  const detail = await getRosterById(id);
+                  setNotice(
+                    `Roster ${detail.rosterId}: ${detail.periodStart} to ${detail.periodEnd} (${detail.status})`
+                  );
+                }}
+              >
+                Detail
+              </button>
+              <button
+                className="px-2 py-1 border border-border rounded"
+                onClick={async () => {
+                  await updateRoster(id, { status: "Draft" });
+                  const list = await searchRosters();
+                  setRosterIds(list.map((r) => r.rosterId));
+                }}
+              >
+                Set Draft
+              </button>
+              <button
+                className="px-2 py-1 border border-border rounded"
+                onClick={async () => {
+                  await deleteRoster(id);
+                  setRosterIds((prev) => prev.filter((x) => x !== id));
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Weekly Roster Grid */}
@@ -219,10 +364,27 @@ export default function OperationsRoster() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Staff Member</label>
-                <select className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary">
-                  <option>Sneha Reddy - Nurse</option>
-                  <option>Deepa Iyer - Tech</option>
-                  <option>Rahul Verma - Nurse</option>
+                <select
+                  value={formUserId ?? ""}
+                  onChange={(e) => setFormUserId(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {users.map((u) => (
+                    <option key={u.userId} value={u.userId}>{u.name} - {u.role}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Backup Staff</label>
+                <select
+                  value={formBackupUserId ?? ""}
+                  onChange={(e) => setFormBackupUserId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">None</option>
+                  {users.map((u) => (
+                    <option key={u.userId} value={u.userId}>{u.name} - {u.role}</option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -230,13 +392,18 @@ export default function OperationsRoster() {
                   <label className="block text-sm font-medium text-foreground mb-2">Date</label>
                   <input 
                     type="date" 
-                    defaultValue="2026-03-31"
+                    value={formDate}
+                    onChange={(e) => setFormDate(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary" 
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">Shift</label>
-                  <select className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                  <select
+                    value={formShift}
+                    onChange={(e) => setFormShift(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
                     <option>Morning (8AM-4PM)</option>
                     <option>Evening (4PM-12AM)</option>
                     <option>Night (12AM-8AM)</option>
@@ -245,9 +412,13 @@ export default function OperationsRoster() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Site</label>
-                <select className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <select
+                  value={formSiteId ?? ""}
+                  onChange={(e) => setFormSiteId(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
                   {sites.map(site => (
-                    <option key={site.id}>{site.name}</option>
+                    <option key={site.id} value={site.id}>{site.name}</option>
                   ))}
                 </select>
               </div>
@@ -260,7 +431,48 @@ export default function OperationsRoster() {
                 Cancel
               </button>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={async () => {
+                  if (!formSiteId || !formUserId) return;
+                  const shift = parseShift(formShift);
+                  const me = await meApi();
+                  const roster = await createRoster({
+                    siteId: formSiteId,
+                    department: "General",
+                    periodStart: formDate,
+                    periodEnd: formDate,
+                  });
+                  await publishRoster(roster.rosterId, me.userId);
+                  const templates = await searchShiftTemplates({ siteId: formSiteId });
+                  const templateId = templates[0]?.shiftTemplateId;
+                  if (templateId) {
+                    const assignment = await createRosterAssignment({
+                      rosterId: roster.rosterId,
+                      userId: formUserId,
+                      shiftTemplateId: templateId,
+                      date: formDate,
+                      role: "General",
+                    });
+                    if (formBackupUserId) {
+                      await swapRosterAssignment(assignment.assignmentId, { withUserId: formBackupUserId });
+                    }
+                    if (formShift.startsWith("Night")) {
+                      await markRosterAssignmentAbsent(assignment.assignmentId, { reason: "Night shift placeholder" });
+                    }
+                  }
+                  await createOnCall({
+                    siteId: formSiteId,
+                    department: "General",
+                    date: formDate,
+                    startTime: shift.start,
+                    endTime: shift.end,
+                    primaryUserId: formUserId,
+                    backupUserId: formBackupUserId ?? undefined,
+                  });
+                  await refreshOnCalls();
+                  await searchRosters();
+                  await searchRosterAssignments();
+                  setShowModal(false);
+                }}
                 className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-[#6b9bd1] to-[#5a8bc1] text-white text-sm font-medium hover:shadow-md transition-all"
               >
                 Assign Shift
