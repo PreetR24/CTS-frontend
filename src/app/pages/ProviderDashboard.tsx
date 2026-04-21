@@ -5,7 +5,7 @@ import { Calendar, Clock, Users, CheckCircle, Plus } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { searchAppointments, type AppointmentDto } from "../../api/appointmentsApi";
 import { meApi } from "../../api/authApi";
-import { fetchProviders, fetchServices, fetchSites } from "../../api/masterdataApi";
+import { fetchServices, fetchSites } from "../../api/masterdataApi";
 
 export default function ProviderDashboard() {
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
@@ -18,21 +18,19 @@ export default function ProviderDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [me, providers, services, sites] = await Promise.all([
+        const [me, services, sites] = await Promise.all([
           meApi(),
-          fetchProviders(),
           fetchServices(),
           fetchSites({ page: 1, pageSize: 250 }),
         ]);
         if (cancelled) return;
-        if (!me.providerId) return;
-        const list = await searchAppointments({ providerId: me.providerId });
+        if (!me.userId) return;
+        const list = await searchAppointments({ providerId: me.userId });
         if (cancelled) return;
         setAppointments(list);
         setPatientNames(new Map());
         setSiteNames(new Map(sites.map((s) => [s.siteId, s.name])));
         setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
-        void providers;
       } catch {
         if (!cancelled) setAppointments([]);
       }
@@ -44,12 +42,12 @@ export default function ProviderDashboard() {
 
   const myAppointments = appointments.map((apt) => ({
     id: apt.appointmentId,
-    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
-    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    patientName: apt.patientName?.trim() || patientNames.get(apt.patientId) || `Patient ${apt.patientId}`,
+    service: apt.serviceName?.trim() || serviceNames.get(apt.serviceId) || `Service ${apt.serviceId}`,
     provider: "Self",
     date: apt.slotDate,
     time: apt.startTime,
-    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+    site: apt.siteName?.trim() || siteNames.get(apt.siteId) || `Site ${apt.siteId}`,
     status: apt.status,
   }));
 

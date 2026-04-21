@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from "recharts";
 import { Download, TrendingUp, TrendingDown } from "lucide-react";
-import { createReport, exportReports, getReportById, searchReports } from "../../../api/reportsApi";
+import { exportReports, searchReports } from "../../../api/reportsApi";
 
 export default function AdminReports() {
   const [reportMetrics, setReportMetrics] = useState<Record<string, unknown>[]>([]);
-  const [reportIds, setReportIds] = useState<number[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -13,7 +12,6 @@ export default function AdminReports() {
       try {
         const reports = await searchReports({ scope: "Operations" });
         if (cancelled) return;
-        setReportIds(reports.map((r) => r.reportId));
         const metrics: Record<string, unknown>[] = [];
         for (const r of reports) {
           if (!r.metricsJson) continue;
@@ -216,29 +214,6 @@ export default function AdminReports() {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
-      <div className="mt-6 flex gap-3">
-        <button
-          onClick={async () => {
-            await createReport({
-              scope: "Operations",
-              metricsJson: JSON.stringify({ generatedAt: new Date().toISOString(), source: "frontend-admin" }),
-            });
-          }}
-          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
-        >
-          Generate Report
-        </button>
-        <button
-          onClick={async () => {
-            if (reportIds.length > 0) {
-              await getReportById(reportIds[0]);
-            }
-          }}
-          className="px-4 py-2 rounded-lg border border-border text-sm"
-        >
-          Fetch First Report
-        </button>
       </div>
     </div>
   );

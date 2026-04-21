@@ -2,7 +2,6 @@ import { Search, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
-import { fetchUsers, type UserDto } from "../../../api/usersApi";
 
 type ProviderPatientRow = {
   id: number;
@@ -15,21 +14,19 @@ type ProviderPatientRow = {
 export default function ProviderPatients() {
   const [searchQuery, setSearchQuery] = useState("");
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
-  const [patientNames, setPatientNames] = useState<Map<number, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const me = await meApi();
-        if (!me.providerId || cancelled) return;
-        const [list, users] = await Promise.all([
-          searchAppointments({ providerId: me.providerId }),
-          fetchUsers({ role: "Patient", page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
-        ]);
+        if (!me.userId || cancelled) {
+          if (!cancelled) setAppointments([]);
+          return;
+        }
+        const list = await searchAppointments({ providerId: me.userId });
         if (cancelled) return;
         setAppointments(list);
-        setPatientNames(new Map(users.map((u) => [u.userId, u.name])));
       } catch {
         if (!cancelled) setAppointments([]);
       }
@@ -49,9 +46,11 @@ export default function ProviderPatients() {
 
     return Array.from(grouped.entries()).map(([patientId, visits]) => {
       const sorted = [...visits].sort((a, b) => (a.slotDate < b.slotDate ? 1 : -1));
+      const resolvedName =
+        visits.map((v) => v.patientName?.trim()).find((name) => Boolean(name)) || `Patient ${patientId}`;
       return {
         id: patientId,
-        name: patientNames.get(patientId) ?? "Unknown Patient",
+        name: resolvedName,
         lastVisit: sorted[0]?.slotDate ?? "-",
         totalVisits: visits.length,
         condition: "Active",

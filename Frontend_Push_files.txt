@@ -4,29 +4,17 @@ Frontend push ownership (empty repo full push)
 Use this as the file-wise push checklist per teammate/module.
 No frontend files are removed; all listed files are active.
 
-Final update (latest integration/refactor pass)
-----------------------------------------------
-- Prompt-based flows were replaced with modal/form inputs in key pages.
-- Button submit/action logic was moved into named functions in the same files for easier explanation.
-- Keep these latest changed files included during push review:
-  - frontend/src/app/pages/admin/Users.tsx
-  - frontend/src/app/pages/admin/Providers.tsx
-  - frontend/src/app/pages/admin/Sites.tsx
-  - frontend/src/app/pages/admin/Services.tsx
-  - frontend/src/app/pages/admin/Config.tsx
-  - frontend/src/app/pages/admin/Holidays.tsx
-  - frontend/src/app/pages/operations/OnCall.tsx
-  - frontend/src/app/pages/frontdesk/Queue.tsx
-  - frontend/src/app/pages/provider/Appointments.tsx
-  - frontend/src/app/pages/provider/Availability.tsx
-  - frontend/src/app/pages/staff/Rooms.tsx
-- These files are already part of module ownership sections below; this is a final verification reminder.
-
 Branches:
 - feature/preet-auth-availability-appointments
 - feature/prathamesh-masterdata-rules
 - feature/chinmaya-patientflow-slots-leave
 - feature/vinith-ops-calendar-roster-admin
+
+Role-wise push ownership (all 3 portals)
+----------------------------------------
+- Provider portal files -> PREET
+- Patient portal files (including new `frontend/src/app/pages/patient/Doctors.tsx`) -> PREET
+- Admin portal files -> PRATHAMESH
 
 ----------------------------------------------------------------
 1) PREET
@@ -53,6 +41,7 @@ Module files
 - frontend/src/app/pages/ProviderDashboard.tsx
 - frontend/src/app/pages/patient/Dashboard.tsx
 - frontend/src/app/pages/patient/Appointments.tsx
+- frontend/src/app/pages/patient/Doctors.tsx
 - frontend/src/app/pages/patient/Records.tsx
 - frontend/src/app/pages/patient/Prescriptions.tsx
 - frontend/src/app/pages/patient/Profile.tsx
@@ -100,6 +89,7 @@ Module files
 - frontend/src/api/adminGovernanceApi.ts
 - frontend/src/api/holidaysApi.ts
 - frontend/src/app/pages/admin/Dashboard.tsx
+- frontend/src/app/pages/admin/Audit.tsx
 - frontend/src/app/pages/admin/Sites.tsx
 - frontend/src/app/pages/admin/Providers.tsx
 - frontend/src/app/pages/admin/Services.tsx

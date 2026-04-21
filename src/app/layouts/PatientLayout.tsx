@@ -12,6 +12,7 @@ import {
 export default function PatientLayout() {
   const sidebarItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/patient" },
+    { icon: Calendar, label: "Doctors & Slots", path: "/patient/doctors" },
     { icon: Calendar, label: "My Appointments", path: "/patient/appointments" },
     { icon: FileText, label: "Medical Records", path: "/patient/records" },
     { icon: Pill, label: "Prescriptions", path: "/patient/prescriptions" },
@@ -19,10 +20,10 @@ export default function PatientLayout() {
   ];
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="patient-portal flex h-screen bg-background">
       <Sidebar items={sidebarItems} roleColor="bg-gradient-to-r from-[#f5a8c8] to-[#e898b8]" />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header title="Patient Portal" userName="Anjali Mehta" userRole="Patient" />
+        <Header title="Patient Portal" userName="Anjali Mehta" userRole="Patient" enableProfileEdit />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

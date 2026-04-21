@@ -24,14 +24,7 @@ export default function Login() {
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPhone, setSignupPhone] = useState("");
 
-  const roles = [
-    { label: "Admin", path: "/admin" },
-    { label: "Provider", path: "/provider" },
-    { label: "FrontDesk", path: "/frontdesk" },
-    { label: "Nurse", path: "/staff" },
-    { label: "Patient", path: "/patient" },
-    { label: "Operations", path: "/operations" },
-  ];
+  const roles = ["Admin", "Provider", "FrontDesk", "Nurse", "Patient", "Operations"];
 
   const handleLogin = async () => {
     if (!email || !selectedRole) {
@@ -90,7 +83,7 @@ export default function Login() {
             <Building2 className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-xl font-medium text-foreground">CareSchedule</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-m text-muted-foreground">
             Healthcare Management System
           </p>
         </div>
@@ -130,9 +123,9 @@ export default function Login() {
                   className="w-full mt-1 p-3 rounded-xl border border-border bg-background text-sm"
                 >
                   <option value="">Select Role</option>
-                  {roles.map((r) => (
-                    <option key={r.label} value={r.label}>
-                      {r.label}
+                  {roles.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
                     </option>
                   ))}
                 </select>
@@ -187,10 +180,6 @@ export default function Login() {
             {formLoading ? (showSignup ? "Signing up..." : "Logging in...") : showSignup ? "Signup" : "Login"}
           </button>
         </div>
-
-        <p className="text-xs text-center text-muted-foreground mt-6">
-          Demo system • Mock authentication
-        </p>
       </div>
     </div>
   );

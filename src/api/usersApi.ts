@@ -9,7 +9,6 @@ export interface UserDto {
   email: string;
   phone: string | null;
   status: string;
-  providerId: number | null;
 }
 
 export interface UserSearchParams {
@@ -34,7 +33,6 @@ export interface UserCreatePayload {
   role: string;
   email: string;
   phone?: string;
-  providerId?: number;
 }
 
 export interface UserUpdatePayload {
@@ -42,7 +40,7 @@ export interface UserUpdatePayload {
   role?: string;
   email?: string;
   phone?: string;
-  providerId?: number;
+  requesterRole?: string;
 }
 
 export async function getUserById(userId: number): Promise<UserDto> {
@@ -70,12 +68,3 @@ export async function activateUser(userId: number): Promise<void> {
   unwrapAxiosApiData(res);
 }
 
-export async function lockUser(userId: number): Promise<void> {
-  const res = await api.patch<ApiResponse<object>>(`/api/iam/users/${userId}/lock`);
-  unwrapAxiosApiData(res);
-}
-
-export async function unlockUser(userId: number): Promise<void> {
-  const res = await api.patch<ApiResponse<object>>(`/api/iam/users/${userId}/unlock`);
-  unwrapAxiosApiData(res);
-}

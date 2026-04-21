@@ -7,7 +7,6 @@ export interface MeResponse {
   name: string;
   role: string;
   email: string;
-  providerId: number | null;
   landingPage: string;
 }
 
@@ -33,7 +32,6 @@ export interface LoginResultDto {
   role: string;
   email: string;
   status: string;
-  providerId: number | null;
   token: string;
 }
 

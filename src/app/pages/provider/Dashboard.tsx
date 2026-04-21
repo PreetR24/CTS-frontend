@@ -4,7 +4,7 @@ import { Calendar, Clock, Users, CheckCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
-import { fetchServices, fetchSites } from "../../../api/masterdataApi";
+import { useNavigate } from "react-router-dom";
 
 type AppointmentRow = {
   id: number;
@@ -26,30 +26,21 @@ function to12Hour(time24: string): string {
 
 export default function ProviderDashboard() {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
-  const [patientNames, setPatientNames] = useState<Map<number, string>>(new Map());
-  const [siteNames, setSiteNames] = useState<Map<number, string>>(new Map());
-  const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [me, services, sites] = await Promise.all([
-          meApi(),
-          fetchServices(),
-          fetchSites({ page: 1, pageSize: 250 }),
-        ]);
+        const me = await meApi();
         if (cancelled) return;
-        if (!me.providerId) {
+        if (!me.userId) {
           setAppointments([]);
           return;
         }
-        const list = await searchAppointments({ providerId: me.providerId });
+        const list = await searchAppointments({ providerId: me.userId });
         if (cancelled) return;
         setAppointments(list);
-        setPatientNames(new Map());
-        setSiteNames(new Map(sites.map((s) => [s.siteId, s.name])));
-        setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
       } catch {
         if (!cancelled) setAppointments([]);
       }
@@ -61,13 +52,17 @@ export default function ProviderDashboard() {
 
   const myAppointments: AppointmentRow[] = appointments.map((apt) => ({
     id: apt.appointmentId,
-    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
-    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    patientName: apt.patientName?.trim() || `Patient ${apt.patientId}`,
+    service: apt.serviceName?.trim() || `Service ${apt.serviceId}`,
     time: to12Hour(apt.startTime),
-    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+    site: apt.siteName?.trim() || `Site ${apt.siteId}`,
     status: apt.status,
     date: apt.slotDate,
   }));
+  const openAppointmentsPage = () => navigate("/provider/appointments");
+  const openSchedulePage = () => navigate("/provider/schedule");
+  const openAvailabilityPage = () => navigate("/provider/availability");
+  const openLeavePage = () => navigate("/provider/leave");
 
   const today = new Date().toISOString().slice(0, 10);
   const todayAppointments = myAppointments.filter((apt) => apt.date === today);
@@ -141,8 +136,8 @@ export default function ProviderDashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
+      <div className="grid grid-cols-1 gap-6 mb-6">
+        <div className="bg-card rounded-xl border border-border p-5">
           <h3 className="text-sm font-medium text-foreground mb-4">Weekly Schedule Overview</h3>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={weeklyData}>
@@ -161,21 +156,29 @@ export default function ProviderDashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
-
         <div className="bg-card rounded-xl border border-border p-5">
           <h3 className="text-sm font-medium text-foreground mb-4">Quick Actions</h3>
-          <div className="space-y-2">
-            <button className="w-full text-left px-4 py-3 rounded-lg bg-[#7ba3c0]/10 hover:bg-[#7ba3c0]/20 transition-colors">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <button
+              onClick={openSchedulePage}
+              className="text-left px-4 py-3 rounded-lg bg-[#7ba3c0]/10 hover:bg-[#7ba3c0]/20 transition-colors"
+            >
               <p className="text-sm font-medium text-foreground">View My Schedule</p>
               <p className="text-xs text-muted-foreground mt-0.5">Check upcoming appointments</p>
             </button>
-            <button className="w-full text-left px-4 py-3 rounded-lg bg-[#c4b5e8]/10 hover:bg-[#c4b5e8]/20 transition-colors">
+            <button
+              onClick={openAvailabilityPage}
+              className="text-left px-4 py-3 rounded-lg bg-[#c4b5e8]/10 hover:bg-[#c4b5e8]/20 transition-colors"
+            >
               <p className="text-sm font-medium text-foreground">Set Availability</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Manage working hours</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Manage templates and blocks</p>
             </button>
-            <button className="w-full text-left px-4 py-3 rounded-lg bg-[#e8c9a9]/10 hover:bg-[#e8c9a9]/20 transition-colors">
+            <button
+              onClick={openLeavePage}
+              className="text-left px-4 py-3 rounded-lg bg-[#e8c9a9]/10 hover:bg-[#e8c9a9]/20 transition-colors"
+            >
               <p className="text-sm font-medium text-foreground">Request Leave</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Submit time-off request</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Create or track leave requests</p>
             </button>
           </div>
         </div>
@@ -184,7 +187,7 @@ export default function ProviderDashboard() {
       <div className="bg-card rounded-xl border border-border">
         <div className="border-b border-border p-5">
           <h3 className="text-sm font-medium text-foreground">Today's Appointments</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Monday, March 30, 2026</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{new Date().toLocaleDateString()}</p>
         </div>
         <div className="p-5">
           <div className="space-y-3">
@@ -213,7 +216,10 @@ export default function ProviderDashboard() {
                   >
                     {apt.status}
                   </span>
-                  <button className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs">
+                  <button
+                    onClick={openAppointmentsPage}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs"
+                  >
                     View Details
                   </button>
                 </div>

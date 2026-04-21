@@ -5,9 +5,13 @@ import { unwrapAxiosApiData, unwrapAxiosApiList } from "./apiTypes";
 export interface AppointmentDto {
   appointmentId: number;
   patientId: number;
+  patientName?: string | null;
   providerId: number;
+  providerName?: string | null;
   siteId: number;
+  siteName?: string | null;
   serviceId: number;
+  serviceName?: string | null;
   slotDate: string;
   startTime: string;
   endTime: string;

@@ -3,7 +3,8 @@ import { StatCard } from "../../components/StatCard";
 import { Calendar, Clock, FileText, Bell } from "lucide-react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
-import { fetchProviders, fetchServices, fetchSites } from "../../../api/masterdataApi";
+import { useNavigate } from "react-router-dom";
+import { fetchUnreadNotificationCount } from "../../../api/notificationsApi";
 
 type AppointmentRow = {
   id: number;
@@ -25,27 +26,22 @@ function to12Hour(time24: string): string {
 
 export default function PatientDashboard() {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
-  const [providerNames, setProviderNames] = useState<Map<number, string>>(new Map());
-  const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
-  const [siteNames, setSiteNames] = useState<Map<number, string>>(new Map());
+  const [unreadReminderCount, setUnreadReminderCount] = useState(0);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [me, providers, services, sites] = await Promise.all([
-          meApi(),
-          fetchProviders(),
-          fetchServices(),
-          fetchSites({ page: 1, pageSize: 250 }),
+        const me = await meApi();
+        if (cancelled) return;
+        const [list, unread] = await Promise.all([
+          searchAppointments({ patientId: me.userId }),
+          fetchUnreadNotificationCount().catch(() => 0),
         ]);
         if (cancelled) return;
-        const list = await searchAppointments({ patientId: me.userId });
-        if (cancelled) return;
         setAppointments(list);
-        setProviderNames(new Map(providers.map((p) => [p.providerId, p.name])));
-        setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
-        setSiteNames(new Map(sites.map((s) => [s.siteId, s.name])));
+        setUnreadReminderCount(unread);
       } catch {
         if (!cancelled) setAppointments([]);
       }
@@ -57,16 +53,17 @@ export default function PatientDashboard() {
 
   const myAppointments: AppointmentRow[] = appointments.map((apt) => ({
     id: apt.appointmentId,
-    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
-    provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
+    service: apt.serviceName?.trim() || `Service ${apt.serviceId}`,
+    provider: apt.providerName?.trim() || `Doctor ${apt.providerId}`,
     status: apt.status,
     date: apt.slotDate,
     time: to12Hour(apt.startTime),
-    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+    site: apt.siteName?.trim() || `Site ${apt.siteId}`,
   }));
   const upcomingAppointments = myAppointments.filter(
     (apt) => apt.status === "Booked" || apt.status === "CheckedIn"
   );
+  const nextAppointment = [...upcomingAppointments].sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))[0];
 
   return (
     <div className="p-6">
@@ -77,9 +74,21 @@ export default function PatientDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard title="Upcoming Appointments" value={upcomingAppointments.length} icon={Calendar} color="bg-[#e8b5d4]/40" subtitle="This month" />
-        <StatCard title="Next Appointment" value="Mar 30" icon={Clock} color="bg-[#7ba3c0]/20" subtitle="2026 at 10:00 AM" />
-        <StatCard title="Medical Records" value="8" icon={FileText} color="bg-[#c4b5e8]/20" subtitle="Available documents" />
-        <StatCard title="Reminders" value="2" icon={Bell} color="bg-[#e8c9a9]/30" subtitle="Pending actions" />
+        <StatCard
+          title="Next Appointment"
+          value={nextAppointment ? nextAppointment.date : "—"}
+          icon={Clock}
+          color="bg-[#7ba3c0]/20"
+          subtitle={nextAppointment ? `${nextAppointment.time}` : "No upcoming"}
+        />
+        <StatCard
+          title="Medical Records"
+          value={appointments.length}
+          icon={FileText}
+          color="bg-[#c4b5e8]/20"
+          subtitle="From your appointment history"
+        />
+        <StatCard title="Reminders" value={unreadReminderCount} icon={Bell} color="bg-[#e8c9a9]/30" subtitle="Unread notifications" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -104,6 +113,9 @@ export default function PatientDashboard() {
                 <p className="text-xs text-muted-foreground">{apt.date} at {apt.time} • {apt.site}</p>
               </div>
             ))}
+            {myAppointments.length === 0 && (
+              <p className="text-sm text-muted-foreground">No appointments found.</p>
+            )}
           </div>
         </div>
 
@@ -111,11 +123,15 @@ export default function PatientDashboard() {
           <div className="bg-card rounded-xl border border-border p-5">
             <h3 className="text-sm font-medium text-foreground mb-4">Quick Actions</h3>
             <div className="space-y-2">
-              {["Book Appointment", "View Records", "Prescription Refill", "Contact Support"].map((action, i) => (
-                <button key={i} className="w-full text-left px-3 py-2.5 rounded-lg bg-[#e8b8d4]/20 hover:bg-[#e8b8d4]/30 transition-colors">
-                  <p className="text-sm font-medium text-foreground">{action}</p>
-                </button>
-              ))}
+              <button onClick={() => navigate("/patient/appointments")} className="w-full text-left px-3 py-2.5 rounded-lg bg-[#e8b8d4]/20 hover:bg-[#e8b8d4]/30 transition-colors">
+                <p className="text-sm font-medium text-foreground">New Appointment</p>
+              </button>
+              <button onClick={() => navigate("/patient/doctors")} className="w-full text-left px-3 py-2.5 rounded-lg bg-[#e8b8d4]/20 hover:bg-[#e8b8d4]/30 transition-colors">
+                <p className="text-sm font-medium text-foreground">View Doctors & Slots</p>
+              </button>
+              <button onClick={() => navigate("/patient/records")} className="w-full text-left px-3 py-2.5 rounded-lg bg-[#e8b8d4]/20 hover:bg-[#e8b8d4]/30 transition-colors">
+                <p className="text-sm font-medium text-foreground">View Records</p>
+              </button>
             </div>
           </div>
         </div>

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
-import { Plus, Search, Edit, Trash2, Activity } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, Edit, Activity } from "lucide-react";
 import {
   activateService,
   createService,
   deactivateService,
   fetchServices,
+  getServiceById,
   updateService,
 } from "../../../api/masterdataApi";
 import { mapServiceRow, type AdminServiceRow } from "../../../api/adminViewMappers";
@@ -13,9 +14,14 @@ export default function AdminServices() {
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Active");
   const [services, setServices] = useState<AdminServiceRow[]>([]);
   const [editServiceId, setEditServiceId] = useState<number | null>(null);
   const [editServiceName, setEditServiceName] = useState("");
+  const [editVisitType, setEditVisitType] = useState("New");
+  const [editDuration, setEditDuration] = useState(30);
+  const [editBufferBefore, setEditBufferBefore] = useState(0);
+  const [editBufferAfter, setEditBufferAfter] = useState(0);
   const [newServiceName, setNewServiceName] = useState("");
   const [newVisitType, setNewVisitType] = useState("New");
   const [loading, setLoading] = useState(true);
@@ -40,15 +46,26 @@ export default function AdminServices() {
     };
   }, []);
 
-  const filteredServices = services.filter((s) =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredServices = useMemo(
+    () =>
+      services.filter(
+        (s) =>
+          (filterStatus === "All" || s.status === filterStatus) &&
+          s.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [services, filterStatus, searchQuery]
   );
 
   const openCreateModal = () => setShowModal(true);
   const closeCreateModal = () => setShowModal(false);
-  const openEditModal = (serviceId: number, serviceName: string) => {
+  const openEditModal = async (serviceId: number) => {
+    const detail = await getServiceById(serviceId);
     setEditServiceId(serviceId);
-    setEditServiceName(serviceName);
+    setEditServiceName(detail.name);
+    setEditVisitType(detail.visitType);
+    setEditDuration(detail.defaultDurationMin);
+    setEditBufferBefore(detail.bufferBeforeMin);
+    setEditBufferAfter(detail.bufferAfterMin);
     setShowEditModal(true);
   };
   const closeEditModal = () => setShowEditModal(false);
@@ -78,9 +95,19 @@ export default function AdminServices() {
 
   const saveEditedService = async () => {
     if (editServiceId == null || !editServiceName.trim()) return;
-    await updateService(editServiceId, { name: editServiceName.trim() });
+    await updateService(editServiceId, {
+      name: editServiceName.trim(),
+      visitType: editVisitType,
+      defaultDurationMin: editDuration,
+      bufferBeforeMin: editBufferBefore,
+      bufferAfterMin: editBufferAfter,
+    });
+    const refreshed = await fetchServices();
     setServices((prev) =>
-      prev.map((s) => (s.id === editServiceId ? { ...s, name: editServiceName.trim() } : s))
+      prev.map((s) => {
+        const latest = refreshed.find((r) => r.serviceId === s.id);
+        return latest ? mapServiceRow(latest) : s;
+      })
     );
     setShowEditModal(false);
   };
@@ -105,6 +132,15 @@ export default function AdminServices() {
               className="w-full pl-10 pr-4 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option>Active</option>
+            <option>Inactive</option>
+            <option>All</option>
+          </select>
           <button
             onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
@@ -161,22 +197,25 @@ export default function AdminServices() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         className="p-2 hover:bg-secondary rounded-lg transition-colors"
-                        onClick={() => openEditModal(service.id, service.name)}
+                        onClick={() => void openEditModal(service.id)}
                       >
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
-                      <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2
-                          className="w-4 h-4 text-destructive"
+                      {service.status === "Active" ? (
+                        <button
+                          className="text-xs px-2 py-1 border border-border rounded text-destructive"
                           onClick={() => void deactivateServiceRow(service.id)}
-                        />
-                      </button>
-                      <button
-                        onClick={() => void activateServiceRow(service.id)}
-                        className="text-xs px-2 py-1 border border-border rounded"
-                      >
-                        Activate
-                      </button>
+                        >
+                          Deactivate
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => void activateServiceRow(service.id)}
+                          className="text-xs px-2 py-1 border border-border rounded"
+                        >
+                          Activate
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -267,6 +306,39 @@ export default function AdminServices() {
               onChange={(e) => setEditServiceName(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Visit Type</label>
+            <select
+              value={editVisitType}
+              onChange={(e) => setEditVisitType(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option>New</option>
+              <option>FollowUp</option>
+              <option>Procedure</option>
+            </select>
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <input
+                type="number"
+                value={editDuration}
+                onChange={(e) => setEditDuration(Number(e.target.value))}
+                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                placeholder="Duration"
+              />
+              <input
+                type="number"
+                value={editBufferBefore}
+                onChange={(e) => setEditBufferBefore(Number(e.target.value))}
+                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                placeholder="Buffer before"
+              />
+              <input
+                type="number"
+                value={editBufferAfter}
+                onChange={(e) => setEditBufferAfter(Number(e.target.value))}
+                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                placeholder="Buffer after"
+              />
+            </div>
             <div className="flex gap-3 mt-6">
               <button
                 onClick={closeEditModal}

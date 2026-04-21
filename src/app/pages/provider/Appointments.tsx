@@ -9,7 +9,6 @@ import {
 } from "../../../api/appointmentsApi";
 import { createOutcome, markOutcomeNoShow } from "../../../api/outcomesApi";
 import { meApi } from "../../../api/authApi";
-import { fetchProviders, fetchServices, fetchSites } from "../../../api/masterdataApi";
 
 type AppointmentRow = {
   id: number;
@@ -31,9 +30,6 @@ function to12Hour(time24: string): string {
 
 export default function ProviderAppointments() {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
-  const [patientNames, setPatientNames] = useState<Map<number, string>>(new Map());
-  const [siteNames, setSiteNames] = useState<Map<number, string>>(new Map());
-  const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
   const [providerId, setProviderId] = useState<number | null>(null);
   const [selectedDetails, setSelectedDetails] = useState<AppointmentDto | null>(null);
   const [outcomeAppointmentId, setOutcomeAppointmentId] = useState<number | null>(null);
@@ -44,16 +40,11 @@ export default function ProviderAppointments() {
     let cancelled = false;
     (async () => {
       try {
-        const [me, providers, services, sites] = await Promise.all([
-          meApi(),
-          fetchProviders(),
-          fetchServices(),
-          fetchSites({ page: 1, pageSize: 250 }),
-        ]);
+        const me = await meApi();
 
         if (cancelled) return;
 
-        const pid = me.providerId ?? null;
+        const pid = me.userId ?? null;
         setProviderId(pid);
         if (pid == null) {
           setAppointments([]);
@@ -63,11 +54,6 @@ export default function ProviderAppointments() {
         const list = await searchAppointments({ providerId: pid });
         if (cancelled) return;
         setAppointments(list);
-
-        setPatientNames(new Map());
-        setSiteNames(new Map(sites.map((s) => [s.siteId, s.name])));
-        setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
-        void providers;
       } catch {
         if (!cancelled) {
           setAppointments([]);
@@ -82,11 +68,11 @@ export default function ProviderAppointments() {
 
   const myAppointments: AppointmentRow[] = appointments.map((apt) => ({
     id: apt.appointmentId,
-    patientName: patientNames.get(apt.patientId) ?? "Unknown Patient",
-    service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
+    patientName: apt.patientName?.trim() || `Patient ${apt.patientId}`,
+    service: apt.serviceName?.trim() || `Service ${apt.serviceId}`,
     date: apt.slotDate,
     time: to12Hour(apt.startTime),
-    site: siteNames.get(apt.siteId) ?? "Unknown Site",
+    site: apt.siteName?.trim() || `Site ${apt.siteId}`,
     status: apt.status,
   }));
 
@@ -213,6 +199,13 @@ export default function ProviderAppointments() {
                   </td>
                 </tr>
               ))}
+              {myAppointments.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-6 px-4 text-sm text-muted-foreground text-center">
+                    No appointments found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -222,8 +215,18 @@ export default function ProviderAppointments() {
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
             <h3 className="text-base font-medium text-foreground mb-3">Appointment Details</h3>
             <p className="text-sm text-muted-foreground">ID: {selectedDetails.appointmentId}</p>
-            <p className="text-sm text-muted-foreground">Patient: {selectedDetails.patientId}</p>
-            <p className="text-sm text-muted-foreground">Provider: {selectedDetails.providerId}</p>
+            <p className="text-sm text-muted-foreground">
+              Patient: {selectedDetails.patientName?.trim() || `Patient ${selectedDetails.patientId}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Provider: {selectedDetails.providerName?.trim() || `Provider ${selectedDetails.providerId}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Service: {selectedDetails.serviceName?.trim() || `Service ${selectedDetails.serviceId}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Site: {selectedDetails.siteName?.trim() || `Site ${selectedDetails.siteId}`}
+            </p>
             <p className="text-sm text-muted-foreground">Date: {selectedDetails.slotDate}</p>
             <p className="text-sm text-muted-foreground">Time: {selectedDetails.startTime}-{selectedDetails.endTime}</p>
             <p className="text-sm text-muted-foreground">Status: {selectedDetails.status}</p>

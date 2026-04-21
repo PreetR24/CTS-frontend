@@ -10,14 +10,12 @@ import {
   type SystemConfigDto,
 } from "../../../api/systemConfigsApi";
 import {
+  type CapacityRuleDto,
+  type SlaDto,
   createCapacityRule,
   createSla,
   deleteCapacityRule,
   deleteSla,
-  getAuditLogById,
-  getCapacityRuleById,
-  getSlaById,
-  searchAuditLogs,
   searchCapacityRules,
   searchSlas,
   updateCapacityRule,
@@ -38,29 +36,46 @@ const defaultDescriptions: Record<string, string> = {
 export default function AdminConfig() {
   const [configs, setConfigs] = useState<SystemConfigDto[]>([]);
   const [draft, setDraft] = useState<Record<number, string>>({});
-  const [capacityRules, setCapacityRules] = useState<Array<{ ruleId: number; scope: string; bufferMin: number }>>([]);
-  const [slas, setSlas] = useState<Array<{ slaId: number; metric: string; targetValue: number; unit: string }>>([]);
-  const [auditLogs, setAuditLogs] = useState<Array<{ auditId: number; action: string; resource: string }>>([]);
+  const [capacityRules, setCapacityRules] = useState<CapacityRuleDto[]>([]);
+  const [slas, setSlas] = useState<SlaDto[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [newConfigKey, setNewConfigKey] = useState("");
   const [newConfigValue, setNewConfigValue] = useState("");
+  const [activeSection, setActiveSection] = useState<"system" | "capacity" | "sla">("system");
+
+  const [editingCapacityId, setEditingCapacityId] = useState<number | null>(null);
+  const [capacityForm, setCapacityForm] = useState({
+    scope: "Global",
+    scopeId: "",
+    maxApptsPerDay: "",
+    maxConcurrentRooms: "",
+    bufferMin: "10",
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: "",
+  });
+
+  const [editingSlaId, setEditingSlaId] = useState<number | null>(null);
+  const [slaForm, setSlaForm] = useState({
+    scope: "Appointment",
+    metric: "WaitTime",
+    targetValue: "15",
+    unit: "Minutes",
+  });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const list = await searchSystemConfigs({ page: 1, pageSize: 200 });
-        const [rules, slaList, audits] = await Promise.all([
+        const [rules, slaList] = await Promise.all([
           searchCapacityRules(),
           searchSlas(),
-          searchAuditLogs({ page: 1, pageSize: 50 }),
         ]);
         if (!cancelled) {
           setConfigs(list);
           setDraft(Object.fromEntries(list.map((x) => [x.configId, x.value])));
-          setCapacityRules(rules.map((r) => ({ ruleId: r.ruleId, scope: r.scope, bufferMin: r.bufferMin })));
-          setSlas(slaList.map((s) => ({ slaId: s.slaId, metric: s.metric, targetValue: s.targetValue, unit: s.unit })));
-          setAuditLogs(audits.map((a) => ({ auditId: a.auditId, action: a.action, resource: a.resource })));
+          setCapacityRules(rules);
+          setSlas(slaList);
         }
       } catch {
         if (!cancelled) {
@@ -89,13 +104,17 @@ export default function AdminConfig() {
       );
       const byId = new Map(updated.map((u) => [u.configId, u]));
       setConfigs((prev) => prev.map((c) => byId.get(c.configId) ?? c));
+      setNotice("System configuration saved.");
     } catch {
-      // preserve current form for retry
+      setNotice("Could not save system configuration.");
     }
   };
 
   const addConfig = async () => {
-    if (!newConfigKey.trim()) return;
+    if (!newConfigKey.trim()) {
+      setNotice("Config key is required.");
+      return;
+    }
     const me = await meApi();
     const created = await createSystemConfig({
       key: newConfigKey.trim(),
@@ -107,6 +126,7 @@ export default function AdminConfig() {
     setDraft((prev) => ({ ...prev, [created.configId]: created.value }));
     setNewConfigKey("");
     setNewConfigValue("");
+    setNotice("Config created.");
   };
 
   const refreshConfigValue = async (configId: number) => {
@@ -119,104 +139,170 @@ export default function AdminConfig() {
     setConfigs((prev) => prev.filter((c) => c.configId !== configId));
   };
 
-  const increaseCapacityRuleBuffer = async (ruleId: number) => {
-    const detail = await getCapacityRuleById(ruleId);
-    await updateCapacityRule(ruleId, { bufferMin: (detail.bufferMin ?? 0) + 5 });
-    const rules = await searchCapacityRules();
-    setCapacityRules(rules.map((x) => ({ ruleId: x.ruleId, scope: x.scope, bufferMin: x.bufferMin })));
-  };
-
   const removeCapacityRule = async (ruleId: number) => {
     await deleteCapacityRule(ruleId);
     setCapacityRules((prev) => prev.filter((x) => x.ruleId !== ruleId));
   };
 
-  const addCapacityRule = async () => {
-    await createCapacityRule({
-      scope: "Global",
-      bufferMin: 10,
-      effectiveFrom: new Date().toISOString().slice(0, 10),
-    });
+  const saveCapacityRule = async () => {
+    if (!capacityForm.scope.trim() || !capacityForm.bufferMin.trim() || !capacityForm.effectiveFrom.trim()) {
+      setNotice("Capacity rule requires scope, buffer, and effective from.");
+      return;
+    }
+    if (Number.isNaN(Number(capacityForm.bufferMin)) || Number(capacityForm.bufferMin) < 0) {
+      setNotice("Buffer must be a non-negative number.");
+      return;
+    }
+    if (capacityForm.effectiveTo && capacityForm.effectiveTo < capacityForm.effectiveFrom) {
+      setNotice("Effective To cannot be earlier than Effective From.");
+      return;
+    }
+    const payload = {
+      scope: capacityForm.scope.trim(),
+      scopeId: capacityForm.scopeId.trim() ? Number(capacityForm.scopeId) : undefined,
+      maxApptsPerDay: capacityForm.maxApptsPerDay.trim() ? Number(capacityForm.maxApptsPerDay) : undefined,
+      maxConcurrentRooms: capacityForm.maxConcurrentRooms.trim() ? Number(capacityForm.maxConcurrentRooms) : undefined,
+      bufferMin: Number(capacityForm.bufferMin),
+      effectiveFrom: capacityForm.effectiveFrom,
+      effectiveTo: capacityForm.effectiveTo.trim() || undefined,
+    };
+    if (editingCapacityId == null) {
+      await createCapacityRule(payload);
+      setNotice("Capacity rule created.");
+    } else {
+      await updateCapacityRule(editingCapacityId, payload);
+      setNotice("Capacity rule updated.");
+    }
     const rules = await searchCapacityRules();
-    setCapacityRules(rules.map((x) => ({ ruleId: x.ruleId, scope: x.scope, bufferMin: x.bufferMin })));
-  };
-
-  const increaseSlaTarget = async (slaId: number) => {
-    const detail = await getSlaById(slaId);
-    await updateSla(slaId, { targetValue: detail.targetValue + 1 });
-    const list = await searchSlas();
-    setSlas(list.map((x) => ({ slaId: x.slaId, metric: x.metric, targetValue: x.targetValue, unit: x.unit })));
+    setCapacityRules(rules);
+    setEditingCapacityId(null);
+    setCapacityForm({
+      scope: "Global",
+      scopeId: "",
+      maxApptsPerDay: "",
+      maxConcurrentRooms: "",
+      bufferMin: "10",
+      effectiveFrom: new Date().toISOString().slice(0, 10),
+      effectiveTo: "",
+    });
   };
 
   const removeSla = async (slaId: number) => {
     await deleteSla(slaId);
     setSlas((prev) => prev.filter((x) => x.slaId !== slaId));
+    setNotice("SLA deleted.");
   };
 
-  const addSlaRule = async () => {
-    await createSla({ scope: "Appointment", metric: "WaitTime", targetValue: 15, unit: "Minutes" });
+  const saveSla = async () => {
+    if (!slaForm.scope.trim() || !slaForm.metric.trim() || !slaForm.targetValue.trim() || !slaForm.unit.trim()) {
+      setNotice("SLA requires scope, metric, target value, and unit.");
+      return;
+    }
+    const payload = {
+      scope: slaForm.scope.trim(),
+      metric: slaForm.metric.trim(),
+      targetValue: Number(slaForm.targetValue),
+      unit: slaForm.unit.trim(),
+    };
+    if (Number.isNaN(payload.targetValue) || payload.targetValue < 0) {
+      setNotice("SLA target value must be a non-negative number.");
+      return;
+    }
+    if (editingSlaId == null) {
+      await createSla(payload);
+      setNotice("SLA created.");
+    } else {
+      await updateSla(editingSlaId, payload);
+      setNotice("SLA updated.");
+    }
     const list = await searchSlas();
-    setSlas(list.map((x) => ({ slaId: x.slaId, metric: x.metric, targetValue: x.targetValue, unit: x.unit })));
-  };
-
-  const showAuditLogDetail = async (auditId: number) => {
-    const detail = await getAuditLogById(auditId);
-    setNotice(`${detail.action} on ${detail.resource}`);
+    setSlas(list);
+    setEditingSlaId(null);
+    setSlaForm({
+      scope: "Appointment",
+      metric: "WaitTime",
+      targetValue: "15",
+      unit: "Minutes",
+    });
   };
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">System Configuration</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage global system parameters and settings</p>
+        <p className="text-sm text-muted-foreground mt-1">Manage system configs, capacity rules, SLA rules, and audit quick view</p>
         {notice && <p className="text-sm text-primary mt-2">{notice}</p>}
       </div>
 
-      <div className="bg-card rounded-xl border border-border">
-        <div className="p-5 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Settings className="w-5 h-5 text-primary" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Configuration Parameters</p>
-              <p className="text-xs text-muted-foreground mt-0.5">These settings affect system-wide behavior</p>
+      <div className="bg-card rounded-xl border border-border mb-4">
+        <div className="p-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveSection("system")}
+            className={`px-3 py-1.5 rounded-lg text-sm border ${activeSection === "system" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+          >
+            System Configs
+          </button>
+          <button
+            onClick={() => setActiveSection("capacity")}
+            className={`px-3 py-1.5 rounded-lg text-sm border ${activeSection === "capacity" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+          >
+            Capacity Rules
+          </button>
+          <button
+            onClick={() => setActiveSection("sla")}
+            className={`px-3 py-1.5 rounded-lg text-sm border ${activeSection === "sla" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+          >
+            SLA Rules
+          </button>
+        </div>
+      </div>
+
+      {activeSection === "system" && (
+        <div className="bg-card rounded-xl border border-border">
+          <div className="p-5 border-b border-border flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <Settings className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Configuration Parameters</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{changed.length} unsaved change(s)</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={saveChanges}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+              >
+                <Save className="w-4 h-4" />
+                Save Changes
+              </button>
+              <button onClick={addConfig} className="px-3 py-2 border border-border rounded-lg text-sm">
+                Add Config
+              </button>
             </div>
           </div>
-          <button
-            onClick={saveChanges}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-          >
-            <Save className="w-4 h-4" />
-            Save Changes
-          </button>
-          <button onClick={addConfig} className="ml-2 px-3 py-2 border border-border rounded-lg text-sm">
-            Add Config
-          </button>
-        </div>
-        <div className="px-5 pt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
-          <input
-            type="text"
-            placeholder="Config key"
-            value={newConfigKey}
-            onChange={(e) => setNewConfigKey(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-          />
-          <input
-            type="text"
-            placeholder="Config value"
-            value={newConfigValue}
-            onChange={(e) => setNewConfigValue(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-          />
-        </div>
-
-        <div className="p-5">
-          <div className="space-y-4">
+          <div className="px-5 pt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <input
+              type="text"
+              placeholder="Config key"
+              value={newConfigKey}
+              onChange={(e) => setNewConfigKey(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+            />
+            <input
+              type="text"
+              placeholder="Config value"
+              value={newConfigValue}
+              onChange={(e) => setNewConfigValue(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+            />
+          </div>
+          <div className="p-5 space-y-4">
             {configs.map((config) => (
-              <div key={config.configId} className="p-4 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground mb-1">{config.key}</p>
-                    <p className="text-xs text-muted-foreground">
+              <div key={config.configId} className="p-4 rounded-lg border border-border">
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_auto_auto] gap-3 items-center">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{config.key}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
                       {defaultDescriptions[config.key] ?? "System configuration parameter"}
                     </p>
                   </div>
@@ -226,90 +312,153 @@ export default function AdminConfig() {
                     onChange={(e) =>
                       setDraft((prev) => ({ ...prev, [config.configId]: e.target.value }))
                     }
-                    className="w-24 px-3 py-1.5 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                   <button onClick={() => void refreshConfigValue(config.configId)} className="px-2 py-1 text-xs border border-border rounded">
                     Refresh
                   </button>
                   <button
                     onClick={() => void removeConfig(config.configId)}
-                    className="px-2 py-1 text-xs border border-border rounded"
+                    className="px-2 py-1 text-xs border border-border rounded text-destructive"
                   >
                     Delete
                   </button>
                 </div>
               </div>
             ))}
+            {configs.length === 0 && <p className="text-sm text-muted-foreground">No system configs found.</p>}
           </div>
+        </div>
+      )}
 
-          <div className="mt-6 p-4 rounded-lg bg-[#e8c9a9]/10 border border-[#e8c9a9]/30">
-            <p className="text-sm font-medium text-foreground mb-2">Important Notes</p>
-            <ul className="text-xs text-muted-foreground space-y-1">
-              <li>• Changes to capacity rules require restart of slot generation</li>
-              <li>• Reminder offsets are calculated from appointment start time</li>
-              <li>• Buffer times help prevent provider overload</li>
-            </ul>
+      {activeSection === "capacity" && (
+        <div className="bg-card rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-medium text-foreground">Capacity Rules</p>
+            <button className="px-3 py-2 border border-border rounded-lg text-sm" onClick={() => {
+              setEditingCapacityId(null);
+              setCapacityForm({
+                scope: "Global",
+                scopeId: "",
+                maxApptsPerDay: "",
+                maxConcurrentRooms: "",
+                bufferMin: "10",
+                effectiveFrom: new Date().toISOString().slice(0, 10),
+                effectiveTo: "",
+              });
+            }}>
+              New Rule
+            </button>
           </div>
-        </div>
-        <div className="p-5 border-t border-border">
-          <p className="text-sm font-medium text-foreground mb-3">Capacity Rules</p>
-          <div className="space-y-2 mb-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4">
+            <input value={capacityForm.scope} onChange={(e) => setCapacityForm((p) => ({ ...p, scope: e.target.value }))} placeholder="Scope" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input value={capacityForm.scopeId} onChange={(e) => setCapacityForm((p) => ({ ...p, scopeId: e.target.value }))} placeholder="Scope ID (optional)" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input type="number" value={capacityForm.maxApptsPerDay} onChange={(e) => setCapacityForm((p) => ({ ...p, maxApptsPerDay: e.target.value }))} placeholder="Max appts/day" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input type="number" value={capacityForm.maxConcurrentRooms} onChange={(e) => setCapacityForm((p) => ({ ...p, maxConcurrentRooms: e.target.value }))} placeholder="Max concurrent rooms" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input type="number" value={capacityForm.bufferMin} onChange={(e) => setCapacityForm((p) => ({ ...p, bufferMin: e.target.value }))} placeholder="Buffer (min)" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input type="date" value={capacityForm.effectiveFrom} onChange={(e) => setCapacityForm((p) => ({ ...p, effectiveFrom: e.target.value }))} className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input type="date" value={capacityForm.effectiveTo} onChange={(e) => setCapacityForm((p) => ({ ...p, effectiveTo: e.target.value }))} className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <button onClick={() => void saveCapacityRule()} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm">
+              {editingCapacityId == null ? "Create" : "Update"}
+            </button>
+          </div>
+          <div className="space-y-2">
             {capacityRules.map((r) => (
-              <div key={r.ruleId} className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>#{r.ruleId}</span>
-                <span>{r.scope}</span>
-                <span>buffer {r.bufferMin}m</span>
-                <button className="px-2 py-1 border border-border rounded" onClick={() => void increaseCapacityRuleBuffer(r.ruleId)}>
-                  +5m
-                </button>
-                <button
-                  className="px-2 py-1 border border-border rounded"
-                  onClick={() => void removeCapacityRule(r.ruleId)}
-                >
-                  Delete
-                </button>
+              <div key={r.ruleId} className="p-3 rounded-lg border border-border flex items-center justify-between gap-3">
+                <div className="text-sm text-foreground">
+                  #{r.ruleId} - {r.scope} - buffer {r.bufferMin}m - from {r.effectiveFrom}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-2 py-1 text-xs border border-border rounded"
+                    onClick={() => {
+                      setEditingCapacityId(r.ruleId);
+                      setCapacityForm({
+                        scope: r.scope,
+                        scopeId: r.scopeId?.toString() ?? "",
+                        maxApptsPerDay: r.maxApptsPerDay?.toString() ?? "",
+                        maxConcurrentRooms: r.maxConcurrentRooms?.toString() ?? "",
+                        bufferMin: String(r.bufferMin),
+                        effectiveFrom: r.effectiveFrom,
+                        effectiveTo: r.effectiveTo ?? "",
+                      });
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="px-2 py-1 text-xs border border-border rounded text-destructive"
+                    onClick={() => void removeCapacityRule(r.ruleId)}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
+            {capacityRules.length === 0 && <p className="text-sm text-muted-foreground">No capacity rules found.</p>}
           </div>
-          <button className="px-3 py-2 border border-border rounded-lg text-sm" onClick={() => void addCapacityRule()}>
-            Add Capacity Rule
-          </button>
         </div>
-        <div className="p-5 border-t border-border">
-          <p className="text-sm font-medium text-foreground mb-3">SLA Rules</p>
-          <div className="space-y-2 mb-3">
+      )}
+
+      {activeSection === "sla" && (
+        <div className="bg-card rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-medium text-foreground">SLA Rules</p>
+            <button className="px-3 py-2 border border-border rounded-lg text-sm" onClick={() => {
+              setEditingSlaId(null);
+              setSlaForm({
+                scope: "Appointment",
+                metric: "WaitTime",
+                targetValue: "15",
+                unit: "Minutes",
+              });
+            }}>
+              New SLA
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-4">
+            <input value={slaForm.scope} onChange={(e) => setSlaForm((p) => ({ ...p, scope: e.target.value }))} placeholder="Scope" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input value={slaForm.metric} onChange={(e) => setSlaForm((p) => ({ ...p, metric: e.target.value }))} placeholder="Metric" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input type="number" value={slaForm.targetValue} onChange={(e) => setSlaForm((p) => ({ ...p, targetValue: e.target.value }))} placeholder="Target value" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <input value={slaForm.unit} onChange={(e) => setSlaForm((p) => ({ ...p, unit: e.target.value }))} placeholder="Unit" className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+            <button onClick={() => void saveSla()} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm">
+              {editingSlaId == null ? "Create" : "Update"}
+            </button>
+          </div>
+          <div className="space-y-2">
             {slas.map((s) => (
-              <div key={s.slaId} className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>#{s.slaId}</span>
-                <span>{s.metric}</span>
-                <span>{s.targetValue} {s.unit}</span>
-                <button className="px-2 py-1 border border-border rounded" onClick={() => void increaseSlaTarget(s.slaId)}>
-                  +1
-                </button>
-                <button
-                  className="px-2 py-1 border border-border rounded"
-                  onClick={() => void removeSla(s.slaId)}
-                >
-                  Delete
-                </button>
+              <div key={s.slaId} className="p-3 rounded-lg border border-border flex items-center justify-between gap-3">
+                <div className="text-sm text-foreground">
+                  #{s.slaId} - {s.metric} - {s.targetValue} {s.unit}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-2 py-1 text-xs border border-border rounded"
+                    onClick={() => {
+                      setEditingSlaId(s.slaId);
+                      setSlaForm({
+                        scope: s.scope,
+                        metric: s.metric,
+                        targetValue: String(s.targetValue),
+                        unit: s.unit,
+                      });
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="px-2 py-1 text-xs border border-border rounded text-destructive"
+                    onClick={() => void removeSla(s.slaId)}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
-          </div>
-          <button className="px-3 py-2 border border-border rounded-lg text-sm" onClick={() => void addSlaRule()}>
-            Add SLA
-          </button>
-        </div>
-        <div className="p-5 border-t border-border">
-          <p className="text-sm font-medium text-foreground mb-3">Audit Logs</p>
-          <div className="space-y-1">
-            {auditLogs.map((a) => (
-              <button key={a.auditId} className="block text-left text-xs text-muted-foreground hover:text-foreground" onClick={() => void showAuditLogDetail(a.auditId)}>
-                #{a.auditId} {a.action} / {a.resource}
-              </button>
-            ))}
+            {slas.length === 0 && <p className="text-sm text-muted-foreground">No SLA rules found.</p>}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

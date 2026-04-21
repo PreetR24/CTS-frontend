@@ -134,6 +134,8 @@ export interface ServiceUpdatePayload {
 
 export interface ProviderCreatePayload {
   name: string;
+  email?: string;
+  phone?: string;
   specialty?: string;
   credentials?: string;
   contactInfo?: string;
@@ -141,6 +143,8 @@ export interface ProviderCreatePayload {
 
 export interface ProviderUpdatePayload {
   name?: string;
+  email?: string;
+  phone?: string;
   specialty?: string;
   credentials?: string;
   contactInfo?: string;

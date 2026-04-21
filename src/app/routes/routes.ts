@@ -20,11 +20,13 @@ import OperationsLayout from "../layouts/OperationsLayout";
 // Admin Pages
 import AdminDashboard from "../pages/admin/Dashboard";
 import AdminSites from "../pages/admin/Sites";
+import AdminRooms from "../pages/admin/Rooms";
 import AdminProviders from "../pages/admin/Providers";
 import AdminServices from "../pages/admin/Services";
 import AdminUsers from "../pages/admin/Users";
 import AdminHolidays from "../pages/admin/Holidays";
 import AdminConfig from "../pages/admin/Config";
+import AdminAudit from "../pages/admin/Audit";
 import AdminReports from "../pages/admin/Reports";
 
 // Provider Pages
@@ -56,6 +58,7 @@ import PatientAppointments from "../pages/patient/Appointments";
 import PatientRecords from "../pages/patient/Records";
 import PatientProfile from "../pages/patient/Profile";
 import PatientPrescriptions from "../pages/patient/Prescriptions";
+import PatientDoctors from "../pages/patient/Doctors";
 
 // Operations Pages
 import OperationsDashboard from "../pages/operations/Dashboard";
@@ -86,11 +89,13 @@ export const router = createBrowserRouter([
             children: [
               { index: true, Component: AdminDashboard },
               { path: "sites", Component: AdminSites },
+              { path: "rooms", Component: AdminRooms },
               { path: "providers", Component: AdminProviders },
               { path: "services", Component: AdminServices },
               { path: "users", Component: AdminUsers },
               { path: "holidays", Component: AdminHolidays },
               { path: "config", Component: AdminConfig },
+              { path: "audit", Component: AdminAudit },
               { path: "reports", Component: AdminReports },
             ],
           },
@@ -162,6 +167,7 @@ export const router = createBrowserRouter([
             Component: PatientLayout,
             children: [
               { index: true, Component: PatientDashboard },
+              { path: "doctors", Component: PatientDoctors },
               { path: "book", Component: PatientAppointments },
               { path: "appointments", Component: PatientAppointments },
               { path: "records", Component: PatientRecords },

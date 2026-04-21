@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Search, Edit, Trash2, Stethoscope } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, Edit, Stethoscope } from "lucide-react";
 import {
   activateProvider,
   createProvider,
@@ -7,6 +7,7 @@ import {
   fetchProviders,
   fetchServices,
   fetchServicesByProvider,
+  getProviderById,
   updateProvider,
 } from "../../../api/masterdataApi";
 import { mapProviderRows, type AdminProviderRow } from "../../../api/adminViewMappers";
@@ -15,11 +16,18 @@ export default function AdminProviders() {
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Active");
   const [providers, setProviders] = useState<AdminProviderRow[]>([]);
   const [editProviderId, setEditProviderId] = useState<number | null>(null);
   const [editProviderName, setEditProviderName] = useState("");
+  const [editProviderSpecialty, setEditProviderSpecialty] = useState("");
+  const [editProviderCredentials, setEditProviderCredentials] = useState("");
+  const [editProviderEmail, setEditProviderEmail] = useState("");
   const [newProviderName, setNewProviderName] = useState("");
+  const [newProviderEmail, setNewProviderEmail] = useState("");
+  const [newProviderPhone, setNewProviderPhone] = useState("");
   const [newProviderSpecialty, setNewProviderSpecialty] = useState("General");
+  const [newProviderCredentials, setNewProviderCredentials] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -53,34 +61,53 @@ export default function AdminProviders() {
     };
   }, []);
 
-  const filteredProviders = providers.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.specialty && p.specialty.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredProviders = useMemo(
+    () =>
+      providers.filter(
+        (p) =>
+          (filterStatus === "All" || p.status === filterStatus) &&
+          (p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (p.specialty && p.specialty.toLowerCase().includes(searchQuery.toLowerCase())))
+      ),
+    [providers, filterStatus, searchQuery]
   );
 
   const openCreateModal = () => setShowModal(true);
   const closeCreateModal = () => setShowModal(false);
-  const openEditModal = (providerId: number, name: string) => {
+  const openEditModal = async (providerId: number) => {
+    const detail = await getProviderById(providerId);
     setEditProviderId(providerId);
-    setEditProviderName(name);
+    setEditProviderName(detail.name);
+    setEditProviderSpecialty(detail.specialty ?? "");
+    setEditProviderCredentials(detail.credentials ?? "");
+    setEditProviderEmail(detail.contactInfo ?? "");
     setShowEditModal(true);
   };
   const closeEditModal = () => setShowEditModal(false);
 
   const deactivateProviderRow = async (providerId: number) => {
     await deactivateProvider(providerId);
+    setProviders((prev) =>
+      prev.map((p) => (p.id === providerId ? { ...p, status: "Inactive" } : p))
+    );
   };
 
   const activateProviderRow = async (providerId: number) => {
     await activateProvider(providerId);
+    setProviders((prev) =>
+      prev.map((p) => (p.id === providerId ? { ...p, status: "Active" } : p))
+    );
   };
 
   const createProviderFromModal = async () => {
     if (!newProviderName.trim()) return;
     const created = await createProvider({
       name: newProviderName.trim(),
+      email: newProviderEmail.trim() || undefined,
+      phone: newProviderPhone.trim() || undefined,
       specialty: newProviderSpecialty.trim() || undefined,
+      credentials: newProviderCredentials.trim() || undefined,
+      contactInfo: newProviderEmail.trim() || undefined,
     });
     const services = await fetchServices();
     setProviders((prev) => [
@@ -91,19 +118,37 @@ export default function AdminProviders() {
         specialty: created.specialty ?? "—",
         email: created.contactInfo ?? "-",
         serviceCount: 0,
+        status: created.status,
       },
     ]);
     void services;
     setNewProviderName("");
+    setNewProviderEmail("");
+    setNewProviderPhone("");
     setNewProviderSpecialty("General");
+    setNewProviderCredentials("");
     setShowModal(false);
   };
 
   const saveEditedProvider = async () => {
     if (editProviderId == null || !editProviderName.trim()) return;
-    await updateProvider(editProviderId, { name: editProviderName.trim() });
+    const updated = await updateProvider(editProviderId, {
+      name: editProviderName.trim(),
+      specialty: editProviderSpecialty.trim() || undefined,
+      credentials: editProviderCredentials.trim() || undefined,
+      contactInfo: editProviderEmail.trim() || undefined,
+    });
     setProviders((prev) =>
-      prev.map((p) => (p.id === editProviderId ? { ...p, name: editProviderName.trim() } : p))
+      prev.map((p) =>
+        p.id === editProviderId
+          ? {
+              ...p,
+              name: updated.name,
+              specialty: updated.specialty ?? "—",
+              email: updated.contactInfo ?? "-",
+            }
+          : p
+      )
     );
     setShowEditModal(false);
   };
@@ -118,15 +163,26 @@ export default function AdminProviders() {
 
       <div className="bg-card rounded-xl border border-border">
         <div className="p-5 border-b border-border flex items-center justify-between flex-wrap gap-4">
-          <div className="relative flex-1 min-w-[250px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search providers..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
+          <div className="flex items-center gap-3 flex-1 min-w-[250px]">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search providers..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option>Active</option>
+              <option>Inactive</option>
+              <option>All</option>
+            </select>
           </div>
           <button
             onClick={openCreateModal}
@@ -145,13 +201,14 @@ export default function AdminProviders() {
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Specialty</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Email</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Services</th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Status</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="py-8 px-4 text-sm text-muted-foreground text-center">
+                  <td colSpan={6} className="py-8 px-4 text-sm text-muted-foreground text-center">
                     Loading…
                   </td>
                 </tr>
@@ -179,33 +236,39 @@ export default function AdminProviders() {
                   <td className="py-4 px-4 text-sm text-muted-foreground">
                     {provider.serviceCount} service{provider.serviceCount === 1 ? "" : "s"}
                   </td>
+                  <td className="py-4 px-4 text-sm text-muted-foreground">
+                    {provider.status}
+                  </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         className="p-2 hover:bg-secondary rounded-lg transition-colors"
-                        onClick={() => openEditModal(provider.id, provider.name)}
+                        onClick={() => void openEditModal(provider.id)}
                       >
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
-                      <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2
-                          className="w-4 h-4 text-destructive"
+                      {provider.status === "Active" ? (
+                        <button
+                          className="text-xs px-2 py-1 border border-border rounded text-destructive"
                           onClick={() => void deactivateProviderRow(provider.id)}
-                        />
-                      </button>
-                      <button
-                        onClick={() => void activateProviderRow(provider.id)}
-                        className="text-xs px-2 py-1 border border-border rounded"
-                      >
-                        Activate
-                      </button>
+                        >
+                          Deactivate
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => void activateProviderRow(provider.id)}
+                          className="text-xs px-2 py-1 border border-border rounded"
+                        >
+                          Activate
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
               {!loading && filteredProviders.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 px-4 text-sm text-muted-foreground text-center">
+                  <td colSpan={6} className="py-8 px-4 text-sm text-muted-foreground text-center">
                     No providers found.
                   </td>
                 </tr>
@@ -241,18 +304,32 @@ export default function AdminProviders() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Credentials</label>
-                <input
-                  type="text"
-                  placeholder="MBBS, MD"
-                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
                 <input
                   type="email"
                   placeholder="doctor@careschedule.in"
+                  value={newProviderEmail}
+                  onChange={(e) => setNewProviderEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Phone</label>
+                <input
+                  type="text"
+                  placeholder="9000000000"
+                  value={newProviderPhone}
+                  onChange={(e) => setNewProviderPhone(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Credentials</label>
+                <input
+                  type="text"
+                  placeholder="MBBS, MD"
+                  value={newProviderCredentials}
+                  onChange={(e) => setNewProviderCredentials(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -283,6 +360,27 @@ export default function AdminProviders() {
               type="text"
               value={editProviderName}
               onChange={(e) => setEditProviderName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Specialty</label>
+            <input
+              type="text"
+              value={editProviderSpecialty}
+              onChange={(e) => setEditProviderSpecialty(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Credentials</label>
+            <input
+              type="text"
+              value={editProviderCredentials}
+              onChange={(e) => setEditProviderCredentials(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Email / Contact</label>
+            <input
+              type="email"
+              value={editProviderEmail}
+              onChange={(e) => setEditProviderEmail(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
             <div className="flex gap-3 mt-6">

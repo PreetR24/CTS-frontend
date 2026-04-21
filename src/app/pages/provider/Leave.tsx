@@ -26,6 +26,7 @@ export default function ProviderLeave() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<string | null>(null);
+  const [selectedImpacts, setSelectedImpacts] = useState<Array<{ impactId: number; status: string; impactType: string }>>([]);
   const [form, setForm] = useState<LeaveForm>({
     leaveType: "Vacation",
     startDate: "",
@@ -40,6 +41,10 @@ export default function ProviderLeave() {
         const me = await meApi();
         if (cancelled) return;
         setMyUserId(me.userId);
+        if (!me.userId) {
+          setLeaves([]);
+          return;
+        }
         const list = await searchLeaveRequests({ userId: me.userId });
         if (cancelled) return;
         setLeaves(list);
@@ -169,11 +174,19 @@ export default function ProviderLeave() {
                     )}
                     <button
                       onClick={async () => {
-                        const detail = await getLeaveRequestById(leave.leaveId);
-                        const impacts = await getLeaveImpacts(leave.leaveId);
-                        setDetailMessage(
-                          `Leave ${detail.leaveType} (${detail.status}) ${detail.startDate} to ${detail.endDate}, impacts: ${impacts.length}`
-                        );
+                        try {
+                          const detail = await getLeaveRequestById(leave.leaveId);
+                          const impacts = await getLeaveImpacts(leave.leaveId);
+                          setSelectedImpacts(
+                            impacts.map((i) => ({ impactId: i.impactId, status: i.status, impactType: i.impactType }))
+                          );
+                          setDetailMessage(
+                            `Leave ${detail.leaveType} (${detail.status}) ${detail.startDate} to ${detail.endDate}, impacts: ${impacts.length}`
+                          );
+                        } catch {
+                          setSelectedImpacts([]);
+                          setDetailMessage("Unable to load leave detail right now.");
+                        }
                       }}
                       className="px-2.5 py-1 rounded-md text-xs border border-border hover:bg-secondary transition-colors"
                     >
@@ -250,6 +263,18 @@ export default function ProviderLeave() {
         </div>
       )}
       {submitMessage && <p className="mt-3 text-sm text-emerald-600">{submitMessage}</p>}
+      {selectedImpacts.length > 0 && (
+        <div className="mt-4 bg-card rounded-xl border border-border p-4">
+          <p className="text-sm font-medium text-foreground mb-2">Leave Impact Status</p>
+          <div className="space-y-1">
+            {selectedImpacts.map((impact) => (
+              <div key={impact.impactId} className="text-xs text-muted-foreground">
+                #{impact.impactId} - {impact.impactType} - {impact.status}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -44,15 +44,6 @@ export function Sidebar({ items, roleColor }: SidebarProps) {
           );
         })}
       </nav>
-
-      <div className="p-4 border-t border-border">
-        <button
-          onClick={() => navigate("/")}
-          className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-white/60 rounded-lg transition-colors"
-        >
-          Switch Portal
-        </button>
-      </div>
     </aside>
   );
 }

@@ -23,7 +23,8 @@ export type AdminUserRow = {
   name: string;
   role: string;
   email: string;
-  specialty?: string;
+  phone: string;
+  status: string;
 };
 
 export type AdminProviderRow = {
@@ -32,6 +33,7 @@ export type AdminProviderRow = {
   specialty?: string;
   email: string;
   serviceCount: number;
+  status: string;
 };
 
 export function formatSiteLocation(addressJson: string | null): string {
@@ -79,13 +81,14 @@ export function buildProviderSpecialtyMap(providers: ProviderDto[]): Map<number,
   return m;
 }
 
-export function mapUserRows(users: UserDto[], specialtyByProviderId: Map<number, string>): AdminUserRow[] {
+export function mapUserRows(users: UserDto[]): AdminUserRow[] {
   return users.map((u) => ({
     id: u.userId,
     name: u.name,
     role: u.role,
     email: u.email,
-    specialty: u.providerId != null ? specialtyByProviderId.get(u.providerId) : undefined,
+    phone: u.phone ?? "-",
+    status: u.status,
   }));
 }
 
@@ -105,5 +108,6 @@ export function mapProviderRows(
     specialty: p.specialty ?? undefined,
     email: pickEmailFromContact(p.contactInfo),
     serviceCount: serviceCountByProviderId[p.providerId] ?? 0,
+    status: p.status,
   }));
 }

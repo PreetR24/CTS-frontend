@@ -2,7 +2,6 @@ import { Pill, Calendar, RefreshCw, Download, AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
-import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
 import { fetchNotifications, type NotificationDto } from "../../../api/notificationsApi";
 
 type PrescriptionRow = {
@@ -21,8 +20,6 @@ type PrescriptionRow = {
 export default function PatientPrescriptions() {
   const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionRow | null>(null);
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
-  const [services, setServices] = useState<Map<number, string>>(new Map());
-  const [providers, setProviders] = useState<Map<number, string>>(new Map());
   const [notifications, setNotifications] = useState<NotificationDto[]>([]);
 
   useEffect(() => {
@@ -30,16 +27,12 @@ export default function PatientPrescriptions() {
     (async () => {
       try {
         const me = await meApi();
-        const [apptList, serviceList, providerList, notifList] = await Promise.all([
+        const [apptList, notifList] = await Promise.all([
           searchAppointments({ patientId: me.userId }),
-          fetchServices(),
-          fetchProviders(),
           fetchNotifications(),
         ]);
         if (cancelled) return;
         setAppointments(apptList);
-        setServices(new Map(serviceList.map((s) => [s.serviceId, s.name])));
-        setProviders(new Map(providerList.map((p) => [p.providerId, p.name])));
         setNotifications(notifList);
       } catch {
         if (!cancelled) {
@@ -59,8 +52,8 @@ export default function PatientPrescriptions() {
     );
     return {
       id: a.appointmentId,
-      medication: services.get(a.serviceId) ?? "Unknown Service",
-      prescribedBy: providers.get(a.providerId) ?? "Unknown Provider",
+      medication: a.serviceName?.trim() || `Service ${a.serviceId}`,
+      prescribedBy: a.providerName?.trim() || `Doctor ${a.providerId}`,
       date: a.slotDate,
       dosage: "As advised",
       timing: "As prescribed",
@@ -190,6 +183,9 @@ export default function PatientPrescriptions() {
             </div>
           </div>
         ))}
+        {prescriptions.length === 0 && (
+          <p className="text-sm text-muted-foreground">No prescriptions found yet.</p>
+        )}
       </div>
 
       {/* Detail Modal */}

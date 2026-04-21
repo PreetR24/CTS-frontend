@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Calendar, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Calendar } from "lucide-react";
 import {
   activateHoliday,
   createHoliday,
@@ -18,12 +18,17 @@ export default function AdminHolidays() {
   const [sites, setSites] = useState<SiteDto[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [filterSiteId, setFilterSiteId] = useState(0);
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Active");
   const [editHolidayId, setEditHolidayId] = useState<number | null>(null);
   const [editDescription, setEditDescription] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editSiteId, setEditSiteId] = useState(0);
   const [form, setForm] = useState({
     description: "",
     date: "",
-    siteId: 0,
+    siteId: -1,
   });
 
   useEffect(() => {
@@ -37,7 +42,7 @@ export default function AdminHolidays() {
         if (cancelled) return;
         setHolidays(holidayList);
         setSites(siteList);
-        setForm((prev) => ({ ...prev, siteId: siteList[0]?.siteId ?? 0 }));
+        setForm((prev) => ({ ...prev, siteId: -1 }));
       } catch {
         if (!cancelled) {
           setHolidays([]);
@@ -50,29 +55,43 @@ export default function AdminHolidays() {
     };
   }, []);
 
-  const holidayRows = holidays.map((h) => ({
-    id: h.holidayId,
-    date: h.date,
-    name: h.description || "Holiday",
-    siteId: h.siteId,
-    site: sites.find((s) => s.siteId === h.siteId)?.name ?? "Unknown Site",
-  }));
+  const holidayRows = useMemo(
+    () =>
+      holidays
+        .filter((h) => filterStatus === "All" || h.status === filterStatus)
+        .filter((h) => filterSiteId === 0 || h.siteId === filterSiteId)
+        .filter((h) => (filterMonth ? h.date.startsWith(filterMonth) : true))
+        .map((h) => ({
+          id: h.holidayId,
+          date: h.date,
+          name: h.description || "Holiday",
+          siteId: h.siteId,
+          site: sites.find((s) => s.siteId === h.siteId)?.name ?? "Unknown Site",
+          status: h.status,
+        })),
+    [holidays, filterStatus, filterSiteId, filterMonth, sites]
+  );
 
   const handleCreate = async () => {
     if (!form.date || !form.siteId) return;
     setIsSaving(true);
     try {
-      const created = await createHoliday({
-        siteId: form.siteId,
-        date: form.date,
-        description: form.description || undefined,
-      });
-      setHolidays((prev) => [created, ...prev]);
+      const targetSiteIds = form.siteId === -1 ? sites.map((site) => site.siteId) : [form.siteId];
+      const createdRows = await Promise.all(
+        targetSiteIds.map((siteId) =>
+          createHoliday({
+            siteId,
+            date: form.date,
+            description: form.description || undefined,
+          })
+        )
+      );
+      setHolidays((prev) => [...createdRows, ...prev]);
       setShowModal(false);
       setForm({
         description: "",
         date: "",
-        siteId: sites[0]?.siteId ?? form.siteId,
+        siteId: -1,
       });
     } finally {
       setIsSaving(false);
@@ -82,7 +101,7 @@ export default function AdminHolidays() {
   const handleDelete = async (id: number) => {
     try {
       await deactivateHoliday(id);
-      setHolidays((prev) => prev.filter((h) => h.holidayId !== id));
+      setHolidays((prev) => prev.map((h) => (h.holidayId === id ? { ...h, status: "Inactive" } : h)));
     } catch {
       // preserve existing row when request fails
     }
@@ -95,6 +114,8 @@ export default function AdminHolidays() {
     const detail = await getHolidayById(holidayId);
     setEditHolidayId(holidayId);
     setEditDescription(detail.description ?? "Holiday");
+    setEditDate(detail.date);
+    setEditSiteId(detail.siteId);
   };
 
   const activateHolidayRow = async (holidayId: number) => {
@@ -107,7 +128,11 @@ export default function AdminHolidays() {
 
   const saveEditedHoliday = async () => {
     if (editHolidayId == null) return;
-    const updated = await updateHoliday(editHolidayId, { description: editDescription });
+    const updated = await updateHoliday(editHolidayId, {
+      description: editDescription,
+      date: editDate,
+      siteId: editSiteId,
+    });
     setHolidays((prev) => prev.map((h) => (h.holidayId === editHolidayId ? updated : h)));
     setEditHolidayId(null);
   };
@@ -131,6 +156,35 @@ export default function AdminHolidays() {
             Add Holiday
           </button>
         </div>
+        <div className="px-5 pt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <select
+            value={filterSiteId}
+            onChange={(e) => setFilterSiteId(Number(e.target.value))}
+            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+          >
+            <option value={0}>All sites</option>
+            {sites.map((site) => (
+              <option key={site.siteId} value={site.siteId}>
+                {site.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="month"
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+          />
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+          >
+            <option>Active</option>
+            <option>Inactive</option>
+            <option>All</option>
+          </select>
+        </div>
 
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -146,14 +200,10 @@ export default function AdminHolidays() {
                       <p className="text-xs text-muted-foreground mt-0.5">{holiday.date}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(holiday.id)}
-                    className="p-1.5 hover:bg-destructive/10 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  </button>
+                  <span className="text-xs text-muted-foreground">#{holiday.id}</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">{holiday.site}</p>
+                <p className="text-xs text-muted-foreground mt-1">Status: {holiday.status}</p>
                 <div className="mt-2 flex gap-2">
                   <button
                     className="px-2 py-1 text-xs border border-border rounded"
@@ -161,12 +211,21 @@ export default function AdminHolidays() {
                   >
                     Edit
                   </button>
-                  <button
-                    className="px-2 py-1 text-xs border border-border rounded"
-                    onClick={() => void activateHolidayRow(holiday.id)}
-                  >
-                    Activate
-                  </button>
+                  {holiday.status === "Active" ? (
+                    <button
+                      className="px-2 py-1 text-xs border border-border rounded text-destructive"
+                      onClick={() => void handleDelete(holiday.id)}
+                    >
+                      Deactivate
+                    </button>
+                  ) : (
+                    <button
+                      className="px-2 py-1 text-xs border border-border rounded"
+                      onClick={() => void activateHolidayRow(holiday.id)}
+                    >
+                      Activate
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -197,7 +256,7 @@ export default function AdminHolidays() {
                   onChange={async (e) => {
                     const date = e.target.value;
                     setForm((prev) => ({ ...prev, date }));
-                    if (form.siteId && date) {
+                    if (form.siteId > 0 && date) {
                       try {
                         const existing = await getHolidayByDate(form.siteId, date);
                         if (existing) {
@@ -220,6 +279,7 @@ export default function AdminHolidays() {
                   }
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
+                  <option value={-1}>All sites</option>
                   {sites.map((site) => (
                     <option key={site.siteId} value={site.siteId}>
                       {site.name}
@@ -257,6 +317,25 @@ export default function AdminHolidays() {
               onChange={(e) => setEditDescription(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Date</label>
+            <input
+              type="date"
+              value={editDate}
+              onChange={(e) => setEditDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Site</label>
+            <select
+              value={editSiteId}
+              onChange={(e) => setEditSiteId(Number(e.target.value))}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              {sites.map((site) => (
+                <option key={site.siteId} value={site.siteId}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
             <div className="flex gap-3 mt-6">
               <button
                 onClick={closeEditHolidayModal}

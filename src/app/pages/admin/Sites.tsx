@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { Plus, Search, Edit, Trash2, MapPin } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, Edit, MapPin } from "lucide-react";
 import {
   activateSite,
   createSite,
   deactivateSite,
   fetchRooms,
   fetchSites,
+  getSiteById,
   updateSite,
 } from "../../../api/masterdataApi";
 import { mapSiteRows, type AdminSiteRow } from "../../../api/adminViewMappers";
@@ -14,10 +15,15 @@ export default function AdminSites() {
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Active");
   const [sites, setSites] = useState<AdminSiteRow[]>([]);
   const [editSiteId, setEditSiteId] = useState<number | null>(null);
   const [editSiteName, setEditSiteName] = useState("");
+  const [editSiteAddress, setEditSiteAddress] = useState("");
+  const [editSiteTimezone, setEditSiteTimezone] = useState("Asia/Kolkata");
   const [newSiteName, setNewSiteName] = useState("");
+  const [newSiteAddress, setNewSiteAddress] = useState("");
+  const [newSiteTimezone, setNewSiteTimezone] = useState("Asia/Kolkata");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -43,17 +49,25 @@ export default function AdminSites() {
     };
   }, []);
 
-  const filteredSites = sites.filter(
-    (site) =>
-      site.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      site.location.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredSites = useMemo(
+    () =>
+      sites.filter(
+        (site) =>
+          (filterStatus === "All" || site.status === filterStatus) &&
+          (site.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            site.location.toLowerCase().includes(searchQuery.toLowerCase()))
+      ),
+    [sites, filterStatus, searchQuery]
   );
 
   const openCreateModal = () => setShowModal(true);
   const closeCreateModal = () => setShowModal(false);
-  const openEditModal = (siteId: number, siteName: string) => {
+  const openEditModal = async (siteId: number, siteName: string, siteLocation: string) => {
+    const detail = await getSiteById(siteId);
     setEditSiteId(siteId);
     setEditSiteName(siteName);
+    setEditSiteAddress(siteLocation === "—" ? "" : siteLocation);
+    setEditSiteTimezone(detail.timezone || "Asia/Kolkata");
     setShowEditModal(true);
   };
   const closeEditModal = () => setShowEditModal(false);
@@ -70,7 +84,11 @@ export default function AdminSites() {
 
   const createSiteFromModal = async () => {
     if (!newSiteName.trim()) return;
-    const created = await createSite({ name: newSiteName.trim(), timezone: "Asia/Kolkata" });
+    const created = await createSite({
+      name: newSiteName.trim(),
+      addressJson: newSiteAddress.trim() || undefined,
+      timezone: newSiteTimezone,
+    });
     setSites((prev) => [
       ...prev,
       {
@@ -82,21 +100,33 @@ export default function AdminSites() {
       },
     ]);
     setNewSiteName("");
+    setNewSiteAddress("");
+    setNewSiteTimezone("Asia/Kolkata");
     setShowModal(false);
   };
 
   const saveEditedSite = async () => {
     if (editSiteId == null || !editSiteName.trim()) return;
-    await updateSite(editSiteId, { name: editSiteName.trim() });
-    setSites((prev) => prev.map((s) => (s.id === editSiteId ? { ...s, name: editSiteName.trim() } : s)));
+    const updated = await updateSite(editSiteId, {
+      name: editSiteName.trim(),
+      addressJson: editSiteAddress.trim() || undefined,
+      timezone: editSiteTimezone,
+    });
+    setSites((prev) =>
+      prev.map((s) =>
+        s.id === editSiteId
+          ? { ...s, name: updated.name, location: updated.addressJson ?? "—", status: updated.status }
+          : s
+      )
+    );
     setShowEditModal(false);
   };
 
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-xl font-medium text-foreground">Sites & Rooms</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage clinic locations and room inventory</p>
+        <h1 className="text-xl font-medium text-foreground">Sites</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage clinic locations</p>
         {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
       </div>
 
@@ -112,6 +142,15 @@ export default function AdminSites() {
               className="w-full pl-10 pr-4 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option>Active</option>
+            <option>Inactive</option>
+            <option>All</option>
+          </select>
           <button
             onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
@@ -127,7 +166,6 @@ export default function AdminSites() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Site Name</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Location</th>
-                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Total Rooms</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Status</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Actions</th>
               </tr>
@@ -135,7 +173,7 @@ export default function AdminSites() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="py-8 px-4 text-sm text-muted-foreground text-center">
+                  <td colSpan={4} className="py-8 px-4 text-sm text-muted-foreground text-center">
                     Loading…
                   </td>
                 </tr>
@@ -156,11 +194,6 @@ export default function AdminSites() {
                   </td>
                   <td className="py-4 px-4 text-sm text-muted-foreground">{site.location}</td>
                   <td className="py-4 px-4">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#7ba3c0]/10 text-sm font-medium text-foreground">
-                      {site.rooms} rooms
-                    </span>
-                  </td>
-                  <td className="py-4 px-4">
                     <span className="inline-flex px-2.5 py-1 rounded-md bg-[#a9d4b8]/30 text-xs font-medium text-foreground">
                       {site.status}
                     </span>
@@ -169,29 +202,32 @@ export default function AdminSites() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         className="p-2 hover:bg-secondary rounded-lg transition-colors"
-                        onClick={() => openEditModal(site.id, site.name)}
+                        onClick={() => void openEditModal(site.id, site.name, site.location)}
                       >
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
-                      <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2
-                          className="w-4 h-4 text-destructive"
+                      {site.status === "Active" ? (
+                        <button
+                          className="text-xs px-2 py-1 border border-border rounded text-destructive"
                           onClick={() => void deactivateSiteRow(site.id)}
-                        />
-                      </button>
-                      <button
-                        onClick={() => void activateSiteRow(site.id)}
-                        className="text-xs px-2 py-1 border border-border rounded"
-                      >
-                        Activate
-                      </button>
+                        >
+                          Deactivate
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => void activateSiteRow(site.id)}
+                          className="text-xs px-2 py-1 border border-border rounded"
+                        >
+                          Activate
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
               {!loading && filteredSites.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 px-4 text-sm text-muted-foreground text-center">
+                  <td colSpan={4} className="py-8 px-4 text-sm text-muted-foreground text-center">
                     No sites found.
                   </td>
                 </tr>
@@ -221,25 +257,21 @@ export default function AdminSites() {
                 <input
                   type="text"
                   placeholder="Street, Area, City"
+                  value={newSiteAddress}
+                  onChange={(e) => setNewSiteAddress(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Number of Rooms</label>
-                  <input
-                    type="number"
-                    placeholder="10"
-                    className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-                <div>
+              <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Timezone</label>
-                  <select className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary">
+                  <select
+                    value={newSiteTimezone}
+                    onChange={(e) => setNewSiteTimezone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
                     <option>Asia/Kolkata</option>
                     <option>Asia/Dubai</option>
                   </select>
-                </div>
               </div>
             </div>
             <div className="flex gap-3 mt-6">
@@ -270,6 +302,22 @@ export default function AdminSites() {
               onChange={(e) => setEditSiteName(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Address</label>
+            <input
+              type="text"
+              value={editSiteAddress}
+              onChange={(e) => setEditSiteAddress(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Timezone</label>
+            <select
+              value={editSiteTimezone}
+              onChange={(e) => setEditSiteTimezone(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option>Asia/Kolkata</option>
+              <option>Asia/Dubai</option>
+            </select>
             <div className="flex gap-3 mt-6">
               <button
                 onClick={closeEditModal}

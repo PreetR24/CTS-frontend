@@ -21,10 +21,10 @@ export default function ProviderLayout() {
   ];
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="provider-portal flex h-screen bg-background">
       <Sidebar items={sidebarItems} roleColor="bg-gradient-to-r from-[#6b9bd1] to-[#5a8bc1]" />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header title="Provider Portal" userName="Dr. Rajesh Kumar" userRole="Cardiologist" />
+        <Header title="Provider Portal" userName="Dr. Rajesh Kumar" userRole="Provider" enableProfileEdit />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

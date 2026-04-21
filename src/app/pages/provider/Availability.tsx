@@ -36,6 +36,7 @@ const DAY_LABELS = [
 ];
 
 export default function ProviderAvailability() {
+  const [activeTab, setActiveTab] = useState<"templates" | "blocks" | "services">("templates");
   const [showModal, setShowModal] = useState(false);
   const [templates, setTemplates] = useState<AvailabilityTemplateDto[]>([]);
   const [sites, setSites] = useState<SiteDto[]>([]);
@@ -49,9 +50,12 @@ export default function ProviderAvailability() {
   const [editEndTime, setEditEndTime] = useState("17:00");
   const [editDuration, setEditDuration] = useState("15");
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockModalMode, setBlockModalMode] = useState<"create" | "view" | "edit">("create");
+  const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
   const [blockDate, setBlockDate] = useState(new Date().toISOString().slice(0, 10));
   const [blockStartTime, setBlockStartTime] = useState("12:00");
   const [blockEndTime, setBlockEndTime] = useState("13:00");
+  const [blockReason, setBlockReason] = useState("Provider block");
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [newServiceId, setNewServiceId] = useState("");
   const [form, setForm] = useState({
@@ -67,13 +71,21 @@ export default function ProviderAvailability() {
     (async () => {
       try {
         const me = await meApi();
-        if (!me.providerId) return;
+        if (!me.userId) {
+          if (!cancelled) {
+            setTemplates([]);
+            setBlocks([]);
+            setProviderServices([]);
+            setAllServices([]);
+          }
+          return;
+        }
         const siteList = await fetchSites({ page: 1, pageSize: 250 });
         if (cancelled) return;
-        setProviderId(me.providerId);
+        setProviderId(me.userId);
         setSites(siteList);
         const [svcMap, svcList]: [ProviderServiceMappingDto[], ServiceDto[]] = await Promise.all([
-          fetchServicesByProvider(me.providerId).catch(() => [] as ProviderServiceMappingDto[]),
+          fetchServicesByProvider(me.userId).catch(() => [] as ProviderServiceMappingDto[]),
           fetchServices().catch(() => [] as ServiceDto[]),
         ]);
         if (!cancelled) {
@@ -84,16 +96,21 @@ export default function ProviderAvailability() {
         setForm((prev) => ({ ...prev, siteId: firstSiteId }));
 
         const grouped = await Promise.all(
-          siteList.map((s) => fetchAvailabilityTemplates(me.providerId as number, s.siteId))
+          siteList.map((s) => fetchAvailabilityTemplates(me.userId, s.siteId))
         );
         if (cancelled) return;
         setTemplates(grouped.flat());
         if (firstSiteId) {
-          const blockList = await searchAvailabilityBlocks(me.providerId, firstSiteId);
+          const blockList = await searchAvailabilityBlocks(me.userId, firstSiteId);
           if (!cancelled) setBlocks(blockList);
         }
       } catch {
-        if (!cancelled) setTemplates([]);
+        if (!cancelled) {
+          setTemplates([]);
+          setBlocks([]);
+          setProviderServices([]);
+          setAllServices([]);
+        }
       }
     })();
     return () => {
@@ -184,35 +201,66 @@ export default function ProviderAvailability() {
   };
 
   const openBlockModal = () => {
+    setBlockModalMode("create");
+    setSelectedBlockId(null);
     setBlockDate(new Date().toISOString().slice(0, 10));
     setBlockStartTime("12:00");
     setBlockEndTime("13:00");
+    setBlockReason("Provider block");
     setShowBlockModal(true);
   };
 
   const closeBlockModal = () => setShowBlockModal(false);
 
+  const refreshBlocks = async (siteId: number) => {
+    if (!providerId || !siteId) return;
+    const blockList = await searchAvailabilityBlocks(providerId, siteId);
+    setBlocks(blockList);
+  };
+
   const addBlockFromModal = async () => {
     if (!providerId || !form.siteId || !blockDate || !blockStartTime || !blockEndTime) return;
+    if (blockModalMode === "edit" && selectedBlockId != null) {
+      // Backend has no update endpoint for blocks, so replace old one.
+      await deleteAvailabilityBlock(selectedBlockId);
+    }
     await createAvailabilityBlock({
       providerId,
       siteId: form.siteId,
       date: blockDate,
       startTime: blockStartTime,
       endTime: blockEndTime,
-      reason: "Provider block",
+      reason: blockReason || "Provider block",
     });
-    const blockList = await searchAvailabilityBlocks(providerId, form.siteId);
-    setBlocks(blockList);
+    await refreshBlocks(form.siteId);
     setShowBlockModal(false);
   };
 
   const deleteBlockRow = async (blockId: number) => {
     await deleteAvailabilityBlock(blockId);
     if (providerId && form.siteId) {
-      const blockList = await searchAvailabilityBlocks(providerId, form.siteId);
-      setBlocks(blockList);
+      await refreshBlocks(form.siteId);
     }
+  };
+
+  const viewBlockRow = (block: AvailabilityBlockDto) => {
+    setBlockModalMode("view");
+    setSelectedBlockId(block.blockId);
+    setBlockDate(block.date);
+    setBlockStartTime(block.startTime);
+    setBlockEndTime(block.endTime);
+    setBlockReason(block.reason || "Provider block");
+    setShowBlockModal(true);
+  };
+
+  const editBlockRow = (block: AvailabilityBlockDto) => {
+    setBlockModalMode("edit");
+    setSelectedBlockId(block.blockId);
+    setBlockDate(block.date);
+    setBlockStartTime(block.startTime);
+    setBlockEndTime(block.endTime);
+    setBlockReason(block.reason || "Provider block");
+    setShowBlockModal(true);
   };
 
   const openServiceModal = () => {
@@ -248,8 +296,14 @@ export default function ProviderAvailability() {
         <h1 className="text-xl font-medium text-foreground">Availability Management</h1>
         <p className="text-sm text-muted-foreground mt-1">Set your working hours and availability templates</p>
       </div>
+      <div className="mb-4 flex gap-2">
+        <button onClick={() => setActiveTab("templates")} className={`px-3 py-1.5 rounded-lg border text-sm ${activeTab === "templates" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}>Templates</button>
+        <button onClick={() => setActiveTab("blocks")} className={`px-3 py-1.5 rounded-lg border text-sm ${activeTab === "blocks" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}>Blocks</button>
+        <button onClick={() => setActiveTab("services")} className={`px-3 py-1.5 rounded-lg border text-sm ${activeTab === "services" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}>Provider Services</button>
+      </div>
 
       <div className="bg-card rounded-xl border border-border">
+        {activeTab === "templates" && (
         <div className="p-5 border-b border-border flex items-center justify-between">
           <p className="text-sm font-medium text-foreground">Weekly Templates</p>
           <button
@@ -260,9 +314,10 @@ export default function ProviderAvailability() {
             Add Template
           </button>
         </div>
+        )}
 
         <div className="p-5">
-          <div className="space-y-3">
+          {activeTab === "templates" && <div className="space-y-3">
             {viewRows.map((template) => (
               <div key={template.id} className="p-4 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
                 <div className="flex items-center justify-between">
@@ -292,9 +347,27 @@ export default function ProviderAvailability() {
                 </div>
               </div>
             ))}
-          </div>
-          <div className="mt-5 border-t border-border pt-4">
+          </div>}
+          {activeTab === "blocks" && <div className="mt-5 border-t border-border pt-4">
             <p className="text-sm font-medium text-foreground mb-2">Availability Blocks</p>
+            <div className="mb-3 max-w-xs">
+              <label className="block text-xs text-muted-foreground mb-1">Site</label>
+              <select
+                value={form.siteId}
+                onChange={(e) => {
+                  const siteId = Number(e.target.value);
+                  setForm((prev) => ({ ...prev, siteId }));
+                  void refreshBlocks(siteId);
+                }}
+                className="w-full px-3 py-2 rounded border border-border bg-input-background text-sm"
+              >
+                {sites.map((site) => (
+                  <option key={site.siteId} value={site.siteId}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               onClick={openBlockModal}
               className="mb-3 px-3 py-2 text-sm rounded bg-primary text-primary-foreground"
@@ -305,19 +378,33 @@ export default function ProviderAvailability() {
               {blocks.map((b) => (
                 <div key={b.blockId} className="flex items-center justify-between p-2 rounded border border-border">
                   <span className="text-xs text-muted-foreground">
-                    {b.date} {b.startTime}-{b.endTime}
+                    {b.date} {b.startTime}-{b.endTime} ({b.reason || "Provider block"})
                   </span>
-                  <button
-                    onClick={() => void deleteBlockRow(b.blockId)}
-                    className="text-xs px-2 py-1 border border-border rounded hover:bg-secondary"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => viewBlockRow(b)}
+                      className="text-xs px-2 py-1 border border-border rounded hover:bg-secondary"
+                    >
+                      View
+                    </button>
+                    <button
+                      onClick={() => editBlockRow(b)}
+                      className="text-xs px-2 py-1 border border-border rounded hover:bg-secondary"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => void deleteBlockRow(b.blockId)}
+                      className="text-xs px-2 py-1 border border-border rounded hover:bg-secondary"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
-          <div className="mt-5 border-t border-border pt-4">
+          </div>}
+          {activeTab === "services" && <div className="mt-5 border-t border-border pt-4">
             <p className="text-sm font-medium text-foreground mb-2">Provider Services</p>
             <button
               onClick={openServiceModal}
@@ -340,10 +427,7 @@ export default function ProviderAvailability() {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Available service IDs: {allServices.slice(0, 10).map((s) => `${s.serviceId}:${s.name}`).join(", ")}
-            </p>
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -459,31 +543,45 @@ export default function ProviderAvailability() {
       {showBlockModal && (
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md shadow-xl">
-            <h3 className="text-base font-medium text-foreground mb-4">Add Block</h3>
+            <h3 className="text-base font-medium text-foreground mb-4">
+              {blockModalMode === "create" ? "Add Block" : blockModalMode === "edit" ? "Edit Block" : "View Block"}
+            </h3>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Date</label>
-                <input type="date" value={blockDate} onChange={(e) => setBlockDate(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+                <input type="date" disabled={blockModalMode === "view"} value={blockDate} onChange={(e) => setBlockDate(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm disabled:opacity-70" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Start Time</label>
-                  <input type="time" value={blockStartTime} onChange={(e) => setBlockStartTime(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+                  <input type="time" disabled={blockModalMode === "view"} value={blockStartTime} onChange={(e) => setBlockStartTime(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm disabled:opacity-70" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">End Time</label>
-                  <input type="time" value={blockEndTime} onChange={(e) => setBlockEndTime(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm" />
+                  <input type="time" disabled={blockModalMode === "view"} value={blockEndTime} onChange={(e) => setBlockEndTime(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm disabled:opacity-70" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Reason</label>
+                <input
+                  type="text"
+                  disabled={blockModalMode === "view"}
+                  value={blockReason}
+                  onChange={(e) => setBlockReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm disabled:opacity-70"
+                />
               </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={closeBlockModal} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary">Cancel</button>
-              <button
-                onClick={() => void addBlockFromModal()}
-                className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
-              >
-                Add
-              </button>
+              {blockModalMode !== "view" && (
+                <button
+                  onClick={() => void addBlockFromModal()}
+                  className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+                >
+                  {blockModalMode === "edit" ? "Save Changes" : "Add"}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -492,13 +590,19 @@ export default function ProviderAvailability() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md shadow-xl">
             <h3 className="text-base font-medium text-foreground mb-4">Add Service</h3>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Service ID</label>
-            <input
-              type="number"
+            <label className="block text-sm font-medium text-foreground mb-1.5">Service</label>
+            <select
               value={newServiceId}
               onChange={(e) => setNewServiceId(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-            />
+            >
+              <option value="">Select service</option>
+              {allServices.map((service) => (
+                <option key={service.serviceId} value={service.serviceId}>
+                  {service.name}
+                </option>
+              ))}
+            </select>
             <div className="flex gap-3 mt-6">
               <button onClick={closeServiceModal} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary">Cancel</button>
               <button

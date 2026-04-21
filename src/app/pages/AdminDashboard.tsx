@@ -3,10 +3,9 @@ import { Header } from "../components/Header";
 import { StatCard } from "../components/StatCard";
 import { Building2, Users, Calendar, Activity, Plus, Search } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { fetchProviders, fetchRooms, fetchServices, fetchSites } from "../../api/masterdataApi";
+import { fetchRooms, fetchServices, fetchSites } from "../../api/masterdataApi";
 import { fetchUsers } from "../../api/usersApi";
 import {
-  buildProviderSpecialtyMap,
   mapServiceRow,
   mapSiteRows,
   mapUserRows,
@@ -26,17 +25,15 @@ export default function AdminDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [sites, rooms, userDtos, providers, services] = await Promise.all([
+        const [sites, rooms, userDtos, services] = await Promise.all([
           fetchSites({ page: 1, pageSize: 250 }),
           fetchRooms({ page: 1, pageSize: 500 }),
           fetchUsers({ page: 1, pageSize: 500 }),
-          fetchProviders(),
           fetchServices(),
         ]);
         if (cancelled) return;
-        const specMap = buildProviderSpecialtyMap(providers);
         setSiteRows(mapSiteRows(sites, rooms));
-        setUserRows(mapUserRows(userDtos, specMap));
+        setUserRows(mapUserRows(userDtos));
         setServiceRows(services.map(mapServiceRow));
       } catch {
         if (!cancelled) {
@@ -213,7 +210,8 @@ export default function AdminDashboard() {
                     <tr className="border-b border-border">
                       <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Name</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Role</th>
-                      <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Specialty</th>
+                      <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Phone</th>
+                      <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Status</th>
                       <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Email</th>
                     </tr>
                   </thead>
@@ -226,7 +224,8 @@ export default function AdminDashboard() {
                             {user.role}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">{user.specialty || "-"}</td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">{user.phone}</td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">{user.status}</td>
                         <td className="py-3 px-4 text-sm text-muted-foreground">{user.email}</td>
                       </tr>
                     ))}

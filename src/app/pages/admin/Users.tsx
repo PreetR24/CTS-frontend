@@ -1,15 +1,12 @@
-import { useEffect, useState } from "react";
-import { Plus, Search, Edit, Trash2, User } from "lucide-react";
-import { fetchProviders } from "../../../api/masterdataApi";
-import { buildProviderSpecialtyMap, mapUserRows, type AdminUserRow } from "../../../api/adminViewMappers";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, Edit, User } from "lucide-react";
+import { mapUserRows, type AdminUserRow } from "../../../api/adminViewMappers";
 import {
   activateUser,
   createUser,
   deactivateUser,
   fetchUsers,
   getUserById,
-  lockUser,
-  unlockUser,
   updateUser,
 } from "../../../api/usersApi";
 
@@ -18,12 +15,16 @@ export default function AdminUsers() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterRole, setFilterRole] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("Active");
   const [rows, setRows] = useState<AdminUserRow[]>([]);
   const [editUserId, setEditUserId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState("Provider");
   const [newEmail, setNewEmail] = useState("");
+  const [newPhone, setNewPhone] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -33,13 +34,9 @@ export default function AdminUsers() {
       try {
         setLoading(true);
         setLoadError(null);
-        const [userList, providerList] = await Promise.all([
-          fetchUsers({ page: 1, pageSize: 500 }),
-          fetchProviders(),
-        ]);
+        const userList = await fetchUsers({ page: 1, pageSize: 500 });
         if (!cancelled) {
-          const specMap = buildProviderSpecialtyMap(providerList);
-          setRows(mapUserRows(userList, specMap));
+          setRows(mapUserRows(userList));
         }
       } catch {
         if (!cancelled) setLoadError("Could not load users.");
@@ -52,11 +49,16 @@ export default function AdminUsers() {
     };
   }, []);
 
-  const filteredUsers = rows.filter(
-    (u) =>
-      (filterRole === "All" || u.role === filterRole) &&
-      (u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.email.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredUsers = useMemo(
+    () =>
+      rows.filter(
+        (u) =>
+          (filterStatus === "All" || u.status === filterStatus) &&
+          (filterRole === "All" || u.role === filterRole) &&
+          (u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            u.email.toLowerCase().includes(searchQuery.toLowerCase()))
+      ),
+    [rows, filterStatus, filterRole, searchQuery]
   );
 
   const roleColors: Record<string, string> = {
@@ -76,29 +78,24 @@ export default function AdminUsers() {
     const detail = await getUserById(userId);
     setEditUserId(userId);
     setEditName(detail.name);
+    setEditEmail(detail.email);
+    setEditPhone(detail.phone ?? "");
     setShowEditModal(true);
   };
 
   const deactivateUserRow = async (userId: number) => {
     await deactivateUser(userId);
-    setRows((prev) => prev.filter((r) => r.id !== userId));
-  };
-
-  const lockUserRow = async (userId: number) => {
-    await lockUser(userId);
-  };
-
-  const unlockUserRow = async (userId: number) => {
-    await unlockUser(userId);
+    setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, status: "Inactive" } : r)));
   };
 
   const activateUserRow = async (userId: number) => {
     await activateUser(userId);
+    setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, status: "Active" } : r)));
   };
 
   const createUserFromModal = async () => {
     if (!newName || !newRole || !newEmail) return;
-    const created = await createUser({ name: newName, role: newRole, email: newEmail });
+    const created = await createUser({ name: newName, role: newRole, email: newEmail, phone: newPhone || undefined });
     setRows((prev) => [
       ...prev,
       {
@@ -106,12 +103,14 @@ export default function AdminUsers() {
         name: created.name,
         role: created.role,
         email: created.email,
-        specialty: "",
+        phone: created.phone ?? "-",
+        status: created.status,
       },
     ]);
     setNewName("");
     setNewRole("Provider");
     setNewEmail("");
+    setNewPhone("");
     setShowModal(false);
   };
 
@@ -119,8 +118,23 @@ export default function AdminUsers() {
 
   const saveEditedUser = async () => {
     if (editUserId == null || !editName.trim()) return;
-    await updateUser(editUserId, { name: editName.trim() });
-    setRows((prev) => prev.map((r) => (r.id === editUserId ? { ...r, name: editName.trim() } : r)));
+    const updated = await updateUser(editUserId, {
+      name: editName.trim(),
+      email: editEmail.trim(),
+      phone: editPhone.trim() || undefined,
+    });
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === editUserId
+          ? {
+              ...r,
+              name: updated.name,
+              email: updated.email,
+              phone: updated.phone ?? "-",
+            }
+          : r
+      )
+    );
     setShowEditModal(false);
   };
 
@@ -158,6 +172,15 @@ export default function AdminUsers() {
               <option>Operations</option>
               <option>Patient</option>
             </select>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option>Active</option>
+              <option>Inactive</option>
+              <option>All</option>
+            </select>
           </div>
           <button
             onClick={openCreateModal}
@@ -175,14 +198,15 @@ export default function AdminUsers() {
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Name</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Role</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Email</th>
-                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Specialty/Dept</th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Phone</th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Status</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="py-8 px-4 text-sm text-muted-foreground text-center">
+                  <td colSpan={6} className="py-8 px-4 text-sm text-muted-foreground text-center">
                     Loading…
                   </td>
                 </tr>
@@ -210,43 +234,35 @@ export default function AdminUsers() {
                     </span>
                   </td>
                   <td className="py-4 px-4 text-sm text-muted-foreground">{user.email}</td>
-                  <td className="py-4 px-4 text-sm text-muted-foreground">{user.specialty || "-"}</td>
+                  <td className="py-4 px-4 text-sm text-muted-foreground">{user.phone}</td>
+                  <td className="py-4 px-4 text-sm text-muted-foreground">{user.status}</td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-end gap-2">
                       <button className="p-2 hover:bg-secondary rounded-lg transition-colors" onClick={() => void openEditModal(user.id)}>
                         <Edit className="w-4 h-4 text-muted-foreground" />
                       </button>
-                      <button className="p-2 hover:bg-destructive/10 rounded-lg transition-colors">
-                        <Trash2
-                          className="w-4 h-4 text-destructive"
+                      {user.status === "Active" ? (
+                        <button
+                          className="text-xs px-2 py-1 border border-border rounded text-destructive"
                           onClick={() => void deactivateUserRow(user.id)}
-                        />
-                      </button>
-                      <button
-                        onClick={() => void lockUserRow(user.id)}
-                        className="text-xs px-2 py-1 border border-border rounded"
-                      >
-                        Lock
-                      </button>
-                      <button
-                        onClick={() => void unlockUserRow(user.id)}
-                        className="text-xs px-2 py-1 border border-border rounded"
-                      >
-                        Unlock
-                      </button>
-                      <button
-                        onClick={() => void activateUserRow(user.id)}
-                        className="text-xs px-2 py-1 border border-border rounded"
-                      >
-                        Activate
-                      </button>
+                        >
+                          Deactivate
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => void activateUserRow(user.id)}
+                          className="text-xs px-2 py-1 border border-border rounded"
+                        >
+                          Activate
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
               {!loading && filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 px-4 text-sm text-muted-foreground text-center">
+                  <td colSpan={6} className="py-8 px-4 text-sm text-muted-foreground text-center">
                     No users found.
                   </td>
                 </tr>
@@ -300,6 +316,8 @@ export default function AdminUsers() {
                 <input
                   type="tel"
                   placeholder="+91 XXXXX XXXXX"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -330,6 +348,20 @@ export default function AdminUsers() {
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Email</label>
+            <input
+              type="email"
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Phone</label>
+            <input
+              type="text"
+              value={editPhone}
+              onChange={(e) => setEditPhone(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
             <div className="flex gap-3 mt-6">

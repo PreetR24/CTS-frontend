@@ -23,7 +23,9 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401 || err.response?.status === 403) {
+    // 401 => token/session invalid, force logout.
+    // 403 => role forbidden for endpoint; do NOT logout globally.
+    if (err.response?.status === 401) {
       localStorage.removeItem("authToken");
       window.location.href = "/";
     }
