@@ -193,24 +193,49 @@
 /* Slightly larger typography only for Provider portal pages */
 .provider-portal .text-xs,
 .admin-portal .text-xs,
-.patient-portal .text-xs {
+.patient-portal .text-xs,
+.nurse-portal .text-xs,
+.operations-portal .text-xs {
   font-size: 0.92rem !important;
 }
 
 .provider-portal .text-sm,
 .admin-portal .text-sm,
-.patient-portal .text-sm {
+.patient-portal .text-sm,
+.nurse-portal .text-sm,
+.operations-portal .text-sm {
   font-size: 1.08rem !important;
 }
 
 .provider-portal .text-base,
 .admin-portal .text-base,
-.patient-portal .text-base {
+.patient-portal .text-base,
+.nurse-portal .text-base,
+.operations-portal .text-base {
   font-size: 1.18rem !important;
 }
 
 .provider-portal .text-lg,
 .admin-portal .text-lg,
-.patient-portal .text-lg {
+.patient-portal .text-lg,
+.nurse-portal .text-lg,
+.operations-portal .text-lg {
   font-size: 1.3rem !important;
+}
+
+/* Slightly increase only patient portal readability */
+.patient-portal .text-xs {
+  font-size: 0.96rem !important;
+}
+
+.patient-portal .text-sm {
+  font-size: 1.12rem !important;
+}
+
+.patient-portal .text-base {
+  font-size: 1.22rem !important;
+}
+
+.patient-portal .text-lg {
+  font-size: 1.34rem !important;
 }

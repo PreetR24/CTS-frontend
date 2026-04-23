@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Clock } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import {
   bookAppointment,
   cancelAppointment,
@@ -11,6 +13,7 @@ import {
 import { meApi } from "../../../api/authApi";
 import { fetchProviders, fetchServices, fetchSites, type ProviderDto, type ServiceDto, type SiteDto } from "../../../api/masterdataApi";
 import { searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
+import { getOutcomeByAppointment, type OutcomeDto } from "../../../api/outcomesApi";
 
 type AppointmentRow = {
   id: number;
@@ -20,6 +23,13 @@ type AppointmentRow = {
   date: string;
   time: string;
   site: string;
+};
+type BookFormValues = {
+  siteId: string;
+  serviceId: string;
+  providerId: string;
+  date: string;
+  slotId: string;
 };
 
 function to12Hour(time24: string): string {
@@ -32,6 +42,7 @@ function to12Hour(time24: string): string {
 
 export default function PatientAppointments() {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [outcomesByAppointmentId, setOutcomesByAppointmentId] = useState<Record<number, OutcomeDto>>({});
   const [providers, setProviders] = useState<ProviderDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
   const [sites, setSites] = useState<SiteDto[]>([]);
@@ -46,8 +57,33 @@ export default function PatientAppointments() {
   const [slotOptions, setSlotOptions] = useState<SlotDto[]>([]);
   const [slotsForSelection, setSlotsForSelection] = useState<SlotDto[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
-  const [selectedSlotId, setSelectedSlotId] = useState("");
   const [rescheduleFor, setRescheduleFor] = useState<AppointmentDto | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [dateFilter, setDateFilter] = useState("");
+  const {
+    register: registerBook,
+    handleSubmit: handleBookSubmit,
+    setValue: setBookValue,
+    reset: resetBookForm,
+    formState: { errors: bookErrors },
+  } = useForm<BookFormValues>({
+    defaultValues: {
+      siteId: "",
+      serviceId: "",
+      providerId: "",
+      date: new Date().toISOString().slice(0, 10),
+      slotId: "",
+    },
+  });
+  const {
+    register: registerReschedule,
+    handleSubmit: handleRescheduleSubmit,
+    setValue: setRescheduleValue,
+    reset: resetRescheduleForm,
+    formState: { errors: rescheduleErrors },
+  } = useForm<{ slotId: string }>({ defaultValues: { slotId: "" } });
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +100,20 @@ export default function PatientAppointments() {
         const list = await searchAppointments({ patientId: me.userId });
         if (cancelled) return;
         setAppointments(list);
+        const completed = list.filter((a) => a.status === "Completed");
+        const outcomes = await Promise.all(
+          completed.map(async (a) => {
+            const outcome = await getOutcomeByAppointment(a.appointmentId);
+            return outcome ? ([a.appointmentId, outcome] as const) : null;
+          })
+        );
+        if (cancelled) return;
+        const outcomeMap: Record<number, OutcomeDto> = {};
+        outcomes.forEach((entry) => {
+          if (!entry) return;
+          outcomeMap[entry[0]] = entry[1];
+        });
+        setOutcomesByAppointmentId(outcomeMap);
         setProviders(providers);
         setServices(services);
         setSites(sites);
@@ -71,7 +121,10 @@ export default function PatientAppointments() {
         setNewServiceId(String(services[0]?.serviceId ?? ""));
         setNewSiteId(String(sites[0]?.siteId ?? ""));
       } catch {
-        if (!cancelled) setAppointments([]);
+        if (!cancelled) {
+          setAppointments([]);
+          setOutcomesByAppointmentId({});
+        }
       }
     })();
     return () => {
@@ -88,6 +141,15 @@ export default function PatientAppointments() {
     time: to12Hour(apt.startTime),
     site: apt.siteName?.trim() || `Site ${apt.siteId}`,
   }));
+  const filteredAppointments = useMemo(
+    () =>
+      myAppointments.filter((apt) => {
+        const statusMatch = statusFilter === "All" || apt.status === statusFilter;
+        const dateMatch = !dateFilter || apt.date === dateFilter;
+        return statusMatch && dateMatch;
+      }),
+    [myAppointments, statusFilter, dateFilter]
+  );
 
   const activeSites = useMemo(() => sites.filter((s) => s.status === "Active"), [sites]);
   const activeServices = useMemo(() => services.filter((s) => s.status === "Active"), [services]);
@@ -109,13 +171,22 @@ export default function PatientAppointments() {
 
   const handleCancel = async (appointmentId: number) => {
     try {
+      setActionError(null);
+      setActionNotice(null);
       await cancelAppointment(appointmentId, { reason: "Cancelled by patient" });
       if (patientId != null) {
         const refreshed = await searchAppointments({ patientId });
         setAppointments(refreshed);
+        setOutcomesByAppointmentId((prev) => {
+          const next = { ...prev };
+          delete next[appointmentId];
+          return next;
+        });
       }
-    } catch {
-      // keep UI unchanged; no toast yet
+      setActionNotice("Appointment cancelled.");
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setActionError(msg ?? "Could not cancel appointment.");
     }
   };
 
@@ -123,7 +194,8 @@ export default function PatientAppointments() {
     const slots = await searchOpenSlots({ providerId, serviceId, siteId, date });
     const open = slots.filter((s) => s.status.toLowerCase() === "open");
     setSlotOptions(open);
-    setSelectedSlotId(String(open[0]?.pubSlotId ?? ""));
+    setBookValue("slotId", String(open[0]?.pubSlotId ?? ""));
+    setRescheduleValue("slotId", String(open[0]?.pubSlotId ?? ""));
   };
 
   const refreshDoctorOptions = async (nextSiteId: string, nextServiceId: string, nextDate: string) => {
@@ -162,6 +234,8 @@ export default function PatientAppointments() {
 
   const handleReschedule = async (appointment: AppointmentDto, slotId: number) => {
     try {
+      setActionError(null);
+      setActionNotice(null);
       await rescheduleAppointment(appointment.appointmentId, {
         newPublishedSlotId: slotId,
         reason: "Rescheduled by patient",
@@ -169,38 +243,72 @@ export default function PatientAppointments() {
       if (patientId != null) {
         const refreshed = await searchAppointments({ patientId });
         setAppointments(refreshed);
+        setOutcomesByAppointmentId((prev) => {
+          const next = { ...prev };
+          delete next[appointment.appointmentId];
+          return next;
+        });
       }
-    } catch {
-      // keep UI unchanged
+      setActionNotice("Appointment rescheduled.");
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setActionError(msg ?? "Could not reschedule appointment.");
     }
   };
 
   const openBookModal = async () => {
+    setActionError(null);
+    setActionNotice(null);
     setShowBookModal(true);
     const s = String(services[0]?.serviceId ?? "");
     const si = String(sites[0]?.siteId ?? "");
+    const p = String(providers[0]?.providerId ?? "");
     setNewServiceId((prev) => prev || s);
     setNewSiteId((prev) => prev || si);
+    setNewProviderId((prev) => prev || p);
+    resetBookForm({
+      siteId: si || newSiteId,
+      serviceId: s || newServiceId,
+      providerId: p || newProviderId,
+      date: newDate,
+      slotId: "",
+    });
     await refreshDoctorOptions(si || newSiteId, s || newServiceId, newDate);
   };
 
-  const submitNewAppointment = async () => {
-    if (!patientId || !selectedSlotId) return;
-    await bookAppointment({ publishedSlotId: Number(selectedSlotId), patientId, bookingChannel: "Portal" });
-    const refreshed = await searchAppointments({ patientId });
-    setAppointments(refreshed);
-    setShowBookModal(false);
+  const submitNewAppointment = async (values: { slotId: string }) => {
+    if (!patientId) return;
+    try {
+      setActionError(null);
+      setActionNotice(null);
+      await bookAppointment({ publishedSlotId: Number(values.slotId), patientId, bookingChannel: "Portal" });
+      const refreshed = await searchAppointments({ patientId });
+      setAppointments(refreshed);
+      setActionNotice("Appointment booked.");
+      setShowBookModal(false);
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setActionError(msg ?? "Could not book appointment.");
+    }
   };
 
   const openDetails = async (appointmentId: number) => {
-    const data = await getAppointmentById(appointmentId);
-    setSelectedDetails(data);
+    try {
+      setActionError(null);
+      const data = await getAppointmentById(appointmentId);
+      setSelectedDetails(data);
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setActionError(msg ?? "Could not load appointment details.");
+    }
   };
 
   const openRescheduleModal = async () => {
     if (!selectedDetails) return;
+    setActionError(null);
     setRescheduleFor(selectedDetails);
     setShowRescheduleModal(true);
+    resetRescheduleForm({ slotId: "" });
     await loadSlotsForBooking(selectedDetails.providerId, selectedDetails.serviceId, selectedDetails.siteId, selectedDetails.slotDate);
   };
 
@@ -209,13 +317,55 @@ export default function PatientAppointments() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">My Appointments</h1>
         <p className="text-sm text-muted-foreground mt-1">View and manage your appointments</p>
+        {actionError && <p className="text-sm text-destructive mt-2">{actionError}</p>}
+        {actionNotice && <p className="text-sm text-primary mt-2">{actionNotice}</p>}
         <button onClick={() => void openBookModal()} className="mt-3 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">
           New Appointment
         </button>
       </div>
 
       <div className="space-y-4">
-        {myAppointments.map((apt) => (
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+              >
+                <option value="All">All</option>
+                <option value="Booked">Booked</option>
+                <option value="CheckedIn">CheckedIn</option>
+                <option value="Completed">Completed</option>
+                <option value="Cancelled">Cancelled</option>
+                <option value="NoShow">NoShow</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Date</label>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("All");
+                  setDateFilter("");
+                }}
+                className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        </div>
+        {filteredAppointments.map((apt) => (
           <div key={apt.id} className="bg-card rounded-xl border border-border p-5">
             <div className="flex items-start justify-between mb-3">
               <div>
@@ -241,6 +391,12 @@ export default function PatientAppointments() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-4">{apt.site}</p>
+            {apt.status === "Completed" && outcomesByAppointmentId[apt.id] && (
+              <p className="text-sm text-foreground mb-3">
+                Outcome: {outcomesByAppointmentId[apt.id].outcome}
+                {outcomesByAppointmentId[apt.id].notes ? ` - ${outcomesByAppointmentId[apt.id].notes}` : ""}
+              </p>
+            )}
             {(apt.status === "Booked" || apt.status === "CheckedIn" || apt.status === "Completed" || apt.status === "Cancelled" || apt.status === "NoShow") && (
               <div className="flex gap-2">
                 <button
@@ -253,6 +409,11 @@ export default function PatientAppointments() {
             )}
           </div>
         ))}
+        {filteredAppointments.length === 0 && (
+          <div className="bg-card rounded-xl border border-border p-5 text-sm text-muted-foreground">
+            No appointments found for selected filters.
+          </div>
+        )}
       </div>
       {selectedDetails && (
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -293,62 +454,111 @@ export default function PatientAppointments() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
             <h3 className="text-base font-medium text-foreground mb-3">Book Appointment</h3>
+            <form onSubmit={handleBookSubmit(submitNewAppointment)}>
+            {(() => {
+              const siteField = registerBook("siteId", { required: "Site is required." });
+              const serviceField = registerBook("serviceId", { required: "Service is required." });
+              const providerField = registerBook("providerId", { required: "Doctor is required." });
+              const dateField = registerBook("date", { required: "Date is required." });
+              return (
+                <>
             <div className="grid grid-cols-2 gap-3">
-              <select
-                value={newSiteId}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setNewSiteId(val);
-                  void refreshDoctorOptions(val, newServiceId, newDate);
-                }}
-                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-              >
-                <option value="">Select Site</option>
-                {siteOptions.map((s) => <option key={s.siteId} value={s.siteId}>{s.name}</option>)}
-              </select>
-              <select
-                value={newServiceId}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setNewServiceId(val);
-                  void refreshDoctorOptions(newSiteId, val, newDate);
-                }}
-                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-              >
-                <option value="">Select Service</option>
-                {activeServices.map((s) => <option key={s.serviceId} value={s.serviceId}>{s.name}</option>)}
-              </select>
-              <select value={newProviderId} onChange={(e) => setNewProviderId(e.target.value)} className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm">
-                <option value="">{loadingDoctors === true ? "Loading doctors..." : (doctorOptions.length === 0 ? "No doctors found" : "Select Doctor")}</option>
-                {doctorOptions.map((p) => <option key={p.providerId} value={p.providerId}>{p.name}</option>)}
-              </select>
-              <input
-                type="date"
-                value={newDate}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setNewDate(val);
-                  void refreshDoctorOptions(newSiteId, newServiceId, val);
-                }}
-                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-              />
+              <div>
+                <select
+                  {...siteField}
+                  value={newSiteId}
+                  onChange={(e) => {
+                    siteField.onChange(e);
+                    const val = e.target.value;
+                    setNewSiteId(val);
+                    setBookValue("siteId", val, { shouldValidate: true });
+                    void refreshDoctorOptions(val, newServiceId, newDate);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+                >
+                  <option value="">Select Site</option>
+                  {siteOptions.map((s) => <option key={s.siteId} value={s.siteId}>{s.name}</option>)}
+                </select>
+                {bookErrors.siteId && <p className="text-xs text-destructive mt-1">{bookErrors.siteId.message}</p>}
+              </div>
+              <div>
+                <select
+                  {...serviceField}
+                  value={newServiceId}
+                  onChange={(e) => {
+                    serviceField.onChange(e);
+                    const val = e.target.value;
+                    setNewServiceId(val);
+                    setBookValue("serviceId", val, { shouldValidate: true });
+                    void refreshDoctorOptions(newSiteId, val, newDate);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+                >
+                  <option value="">Select Service</option>
+                  {activeServices.map((s) => <option key={s.serviceId} value={s.serviceId}>{s.name}</option>)}
+                </select>
+                {bookErrors.serviceId && <p className="text-xs text-destructive mt-1">{bookErrors.serviceId.message}</p>}
+              </div>
+              <div>
+                <select
+                  {...providerField}
+                  value={newProviderId}
+                  onChange={(e) => {
+                    providerField.onChange(e);
+                    const val = e.target.value;
+                    setNewProviderId(val);
+                    setBookValue("providerId", val, { shouldValidate: true });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+                >
+                  <option value="">{loadingDoctors === true ? "Loading doctors..." : (doctorOptions.length === 0 ? "No doctors found" : "Select Doctor")}</option>
+                  {doctorOptions.map((p) => <option key={p.providerId} value={p.providerId}>{p.name}</option>)}
+                </select>
+                {bookErrors.providerId && <p className="text-xs text-destructive mt-1">{bookErrors.providerId.message}</p>}
+              </div>
+              <div>
+                <input
+                  type="date"
+                  {...dateField}
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={newDate}
+                  onChange={(e) => {
+                    dateField.onChange(e);
+                    const val = e.target.value;
+                    setNewDate(val);
+                    setBookValue("date", val, { shouldValidate: true });
+                    void refreshDoctorOptions(newSiteId, newServiceId, val);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+                />
+                {bookErrors.date && <p className="text-xs text-destructive mt-1">{bookErrors.date.message}</p>}
+              </div>
             </div>
             <button
+              type="button"
               onClick={() => void loadSlotsForBooking(Number(newProviderId), Number(newServiceId), Number(newSiteId), newDate)}
               className="mt-3 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
             >
               Load Slots
             </button>
-            <select value={selectedSlotId} onChange={(e) => setSelectedSlotId(e.target.value)} className="mt-3 w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm">
+            <select
+              {...registerBook("slotId", { required: "Please select a slot." })}
+              className="mt-3 w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+            >
               <option value="">Select slot</option>
               {slotOptions.map((s) => (
                 <option key={s.pubSlotId} value={s.pubSlotId}>{s.slotDate} {s.startTime}-{s.endTime}</option>
               ))}
             </select>
+            {bookErrors.slotId && <p className="text-xs text-destructive mt-1">{bookErrors.slotId.message}</p>}
+            </>
+              );
+            })()}
             <div className="flex gap-3 mt-4">
-              <button onClick={() => setShowBookModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm">Cancel</button>
-              <button onClick={() => void submitNewAppointment()} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm">Book</button>
+              <button type="button" onClick={() => setShowBookModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm">Cancel</button>
+              <button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm">Book</button>
             </div>
+            </form>
           </div>
         </div>
       )}
@@ -356,26 +566,33 @@ export default function PatientAppointments() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
             <h3 className="text-base font-medium text-foreground mb-3">Reschedule Appointment</h3>
-            <select value={selectedSlotId} onChange={(e) => setSelectedSlotId(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm">
+            <form
+              onSubmit={handleRescheduleSubmit(async (values) => {
+                await handleReschedule(rescheduleFor, Number(values.slotId));
+                setShowRescheduleModal(false);
+                setSelectedDetails(null);
+              })}
+            >
+            <select
+              {...registerReschedule("slotId", { required: "Please select a new slot." })}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+            >
               <option value="">Select new slot</option>
               {slotOptions.map((s) => (
                 <option key={s.pubSlotId} value={s.pubSlotId}>{s.slotDate} {s.startTime}-{s.endTime}</option>
               ))}
             </select>
+            {rescheduleErrors.slotId && <p className="text-xs text-destructive mt-1">{rescheduleErrors.slotId.message}</p>}
             <div className="flex gap-3 mt-4">
-              <button onClick={() => setShowRescheduleModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm">Cancel</button>
+              <button type="button" onClick={() => setShowRescheduleModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm">Cancel</button>
               <button
-                onClick={async () => {
-                  if (!selectedSlotId) return;
-                  await handleReschedule(rescheduleFor, Number(selectedSlotId));
-                  setShowRescheduleModal(false);
-                  setSelectedDetails(null);
-                }}
+                type="submit"
                 className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
               >
                 Save
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

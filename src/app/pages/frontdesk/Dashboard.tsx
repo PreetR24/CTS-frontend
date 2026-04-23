@@ -4,6 +4,8 @@ import { Calendar, Users, Clock, AlertCircle } from "lucide-react";
 import { searchAppointments, searchWaitlist, type AppointmentDto } from "../../../api/appointmentsApi";
 import { fetchProviders, fetchServices } from "../../../api/masterdataApi";
 import { fetchUsers, type UserDto } from "../../../api/usersApi";
+import { createCheckIn } from "../../../api/checkinsApi";
+import { isAxiosError } from "axios";
 
 type AppointmentRow = {
   id: number;
@@ -28,25 +30,30 @@ export default function FrontDeskDashboard() {
   const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
   const [providerNames, setProviderNames] = useState<Map<number, string>>(new Map());
   const [serviceNames, setServiceNames] = useState<Map<number, string>>(new Map());
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadDashboard = async (cancelled = false) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const [list, waitlist, users, providers, services] = await Promise.all([
+      searchAppointments({ date: today }),
+      searchWaitlist(),
+      fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
+      fetchProviders(),
+      fetchServices(),
+    ]);
+    if (cancelled) return;
+    setAppointments(list);
+    setWaitCount(waitlist.length);
+    setUserNames(new Map(users.map((u) => [u.userId, u.name])));
+    setProviderNames(new Map(providers.map((p) => [p.providerId, p.name])));
+    setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const today = new Date().toISOString().slice(0, 10);
-        const [list, waitlist, users, providers, services] = await Promise.all([
-          searchAppointments({ date: today }),
-          searchWaitlist(),
-          fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
-          fetchProviders(),
-          fetchServices(),
-        ]);
-        if (cancelled) return;
-        setAppointments(list);
-        setWaitCount(waitlist.length);
-        setUserNames(new Map(users.map((u) => [u.userId, u.name])));
-        setProviderNames(new Map(providers.map((p) => [p.providerId, p.name])));
-        setServiceNames(new Map(services.map((s) => [s.serviceId, s.name])));
+        await loadDashboard(cancelled);
       } catch {
         if (!cancelled) {
           setAppointments([]);
@@ -70,12 +77,31 @@ export default function FrontDeskDashboard() {
 
   const checkedInCount = todayAppointments.filter(apt => apt.status === "CheckedIn").length;
   const pendingCheckin = todayAppointments.filter(apt => apt.status === "Booked").length;
+  const upcomingAppointments = todayAppointments
+    .filter((apt) => apt.status === "Booked" || apt.status === "CheckedIn")
+    .slice(0, 6);
+  const completedToday = todayAppointments.filter((apt) => apt.status === "Completed").length;
+
+  const handleCheckIn = async (appointmentId: number) => {
+    try {
+      setNotice(null);
+      await createCheckIn(appointmentId);
+      await loadDashboard(false);
+      setNotice("Patient checked in.");
+    } catch (error) {
+      const message = isAxiosError<{ message?: string }>(error)
+        ? error.response?.data?.message
+        : undefined;
+      setNotice(message ?? "Could not check in patient.");
+    }
+  };
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Front Desk Overview</h1>
         <p className="text-sm text-muted-foreground mt-1">Today's appointments and queue management</p>
+        {notice && <p className="text-sm text-primary mt-2">{notice}</p>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -109,14 +135,20 @@ export default function FrontDeskDashboard() {
         />
       </div>
 
-      <div className="bg-card rounded-xl border border-border">
+      <div className="bg-card rounded-xl border border-border shadow-sm">
         <div className="border-b border-border p-5">
-          <h3 className="text-sm font-medium text-foreground">Today's Schedule</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Monday, March 30, 2026</p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-medium text-foreground">Today's Schedule</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Upcoming {upcomingAppointments.length} | Completed {completedToday}
+              </p>
+            </div>
+          </div>
         </div>
         <div className="p-5">
           <div className="space-y-2">
-            {todayAppointments.map((apt) => (
+            {upcomingAppointments.map((apt) => (
               <div key={apt.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
@@ -136,13 +168,19 @@ export default function FrontDeskDashboard() {
                     {apt.status}
                   </span>
                   {apt.status === "Booked" && (
-                    <button className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs">
+                    <button
+                      onClick={() => void handleCheckIn(apt.id)}
+                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs"
+                    >
                       Check In
                     </button>
                   )}
                 </div>
               </div>
             ))}
+            {upcomingAppointments.length === 0 && (
+              <p className="text-sm text-muted-foreground">No upcoming queue items for today.</p>
+            )}
           </div>
         </div>
       </div>

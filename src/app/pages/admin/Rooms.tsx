@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import {
   activateRoom,
   createRoom,
@@ -11,6 +13,12 @@ import {
   updateRoom,
 } from "../../../api/masterdataApi";
 
+type RoomFormValues = {
+  roomName: string;
+  roomType: string;
+  siteId: number;
+};
+
 export default function AdminRooms() {
   const [rooms, setRooms] = useState<RoomDto[]>([]);
   const [sites, setSites] = useState<SiteDto[]>([]);
@@ -18,19 +26,46 @@ export default function AdminRooms() {
   const [filterStatus, setFilterStatus] = useState("Active");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editRoomId, setEditRoomId] = useState<number | null>(null);
-  const [form, setForm] = useState({ roomName: "", roomType: "Consultation", siteId: 0 });
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    reset: resetCreateForm,
+    formState: { errors: createErrors },
+  } = useForm<RoomFormValues>({
+    defaultValues: { roomName: "", roomType: "", siteId: 0 },
+  });
+  const {
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEditForm,
+    formState: { errors: editErrors },
+  } = useForm<RoomFormValues>({
+    defaultValues: { roomName: "", roomType: "", siteId: 0 },
+  });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [siteList, roomList] = await Promise.all([
-        fetchSites({ page: 1, pageSize: 250 }),
-        fetchRooms({ page: 1, pageSize: 500 }),
-      ]);
-      if (cancelled) return;
-      setSites(siteList);
-      setRooms(roomList);
-      setForm((prev) => ({ ...prev, siteId: siteList[0]?.siteId ?? 0 }));
+      try {
+        setLoadError(null);
+        const [siteList, roomList] = await Promise.all([
+          fetchSites({ page: 1, pageSize: 250 }),
+          fetchRooms({ page: 1, pageSize: 500 }),
+        ]);
+        if (cancelled) return;
+        setSites(siteList);
+        setRooms(roomList);
+        const defaultSiteId = siteList[0]?.siteId ?? 0;
+        resetCreateForm({ roomName: "", roomType: "", siteId: defaultSiteId });
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(getErrorMessage(error, "Could not load rooms."));
+          setSites([]);
+          setRooms([]);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -47,42 +82,73 @@ export default function AdminRooms() {
     [rooms, filterStatus, searchQuery]
   );
 
-  const handleCreateRoom = async () => {
-    if (!form.roomName.trim() || !form.siteId) return;
-    const created = await createRoom({
-      roomName: form.roomName.trim(),
-      roomType: form.roomType.trim() || undefined,
-      siteId: form.siteId,
-    });
-    setRooms((prev) => [...prev, created]);
-    setShowCreateModal(false);
-    setForm((prev) => ({ ...prev, roomName: "" }));
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
+
+  const handleCreateRoom = async (values: RoomFormValues) => {
+    try {
+      setActionMessage(null);
+      const created = await createRoom({
+        roomName: values.roomName.trim(),
+        roomType: values.roomType.trim() || undefined,
+        siteId: Number(values.siteId),
+      });
+      setRooms((prev) => [...prev, created]);
+      setShowCreateModal(false);
+      resetCreateForm({ roomName: "", roomType: "", siteId: values.siteId });
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not create room."));
+    }
   };
 
   const handleStartEdit = (room: RoomDto) => {
     setEditRoomId(room.roomId);
-    setForm({ roomName: room.roomName, roomType: room.roomType, siteId: room.siteId });
+    resetEditForm({
+      roomName: room.roomName,
+      roomType: room.roomType,
+      siteId: room.siteId,
+    });
   };
 
-  const handleSaveEdit = async () => {
-    if (editRoomId == null || !form.roomName.trim() || !form.siteId) return;
-    const updated = await updateRoom(editRoomId, {
-      roomName: form.roomName.trim(),
-      roomType: form.roomType.trim(),
-      siteId: form.siteId,
-    });
-    setRooms((prev) => prev.map((room) => (room.roomId === editRoomId ? updated : room)));
-    setEditRoomId(null);
+  const handleSaveEdit = async (values: RoomFormValues) => {
+    if (editRoomId == null) return;
+    try {
+      setActionMessage(null);
+      const updated = await updateRoom(editRoomId, {
+        roomName: values.roomName.trim(),
+        roomType: values.roomType.trim(),
+        siteId: Number(values.siteId),
+      });
+      setRooms((prev) => prev.map((room) => (room.roomId === editRoomId ? updated : room)));
+      setEditRoomId(null);
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not update room."));
+    }
   };
 
   const handleDeactivate = async (roomId: number) => {
-    await deactivateRoom(roomId);
-    setRooms((prev) => prev.map((room) => (room.roomId === roomId ? { ...room, status: "Inactive" } : room)));
+    try {
+      setActionMessage(null);
+      await deactivateRoom(roomId);
+      setRooms((prev) => prev.map((room) => (room.roomId === roomId ? { ...room, status: "Inactive" } : room)));
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not deactivate room."));
+    }
   };
 
   const handleActivate = async (roomId: number) => {
-    await activateRoom(roomId);
-    setRooms((prev) => prev.map((room) => (room.roomId === roomId ? { ...room, status: "Active" } : room)));
+    try {
+      setActionMessage(null);
+      await activateRoom(roomId);
+      setRooms((prev) => prev.map((room) => (room.roomId === roomId ? { ...room, status: "Active" } : room)));
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not activate room."));
+    }
   };
 
   return (
@@ -90,6 +156,8 @@ export default function AdminRooms() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Rooms</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage room inventory and room metadata</p>
+        {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
+        {actionMessage && <p className="text-sm text-destructive mt-2">{actionMessage}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -172,50 +240,113 @@ export default function AdminRooms() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg">
             <h3 className="text-base font-medium text-foreground mb-4">{editRoomId == null ? "Add Room" : "Edit Room"}</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Room name"
-                value={form.roomName}
-                onChange={(e) => setForm((prev) => ({ ...prev, roomName: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
-              />
-              <input
-                type="text"
-                placeholder="Room type"
-                value={form.roomType}
-                onChange={(e) => setForm((prev) => ({ ...prev, roomType: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
-              />
-              <select
-                value={form.siteId}
-                onChange={(e) => setForm((prev) => ({ ...prev, siteId: Number(e.target.value) }))}
-                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
-              >
-                {sites.map((site) => (
-                  <option key={site.siteId} value={site.siteId}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setEditRoomId(null);
-                }}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void (editRoomId == null ? handleCreateRoom() : handleSaveEdit())}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                {editRoomId == null ? "Create Room" : "Save"}
-              </button>
-            </div>
+            {editRoomId == null ? (
+              <form className="space-y-4" onSubmit={handleCreateSubmit(handleCreateRoom)}>
+                <input
+                  type="text"
+                  placeholder="Room name"
+                  {...registerCreate("roomName", {
+                    required: "Room name is required.",
+                    validate: (value) => value.trim().length > 0 || "Room name cannot be empty.",
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                />
+                {createErrors.roomName && <p className="text-xs text-destructive">{createErrors.roomName.message}</p>}
+                <input
+                  type="text"
+                  placeholder="Room type"
+                  {...registerCreate("roomType", {
+                    required: "Room type is required.",
+                    validate: (value) => value.trim().length > 0 || "Room type cannot be empty.",
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                />
+                {createErrors.roomType && <p className="text-xs text-destructive">{createErrors.roomType.message}</p>}
+                <select
+                  {...registerCreate("siteId", {
+                    valueAsNumber: true,
+                    min: { value: 1, message: "Please select a valid site." },
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                >
+                  {sites.map((site) => (
+                    <option key={site.siteId} value={site.siteId}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+                {createErrors.siteId && <p className="text-xs text-destructive">{createErrors.siteId.message}</p>}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                    }}
+                    className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                  >
+                    Create Room
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form className="space-y-4" onSubmit={handleEditSubmit(handleSaveEdit)}>
+                <input
+                  type="text"
+                  placeholder="Room name"
+                  {...registerEdit("roomName", {
+                    required: "Room name is required.",
+                    validate: (value) => value.trim().length > 0 || "Room name cannot be empty.",
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                />
+                {editErrors.roomName && <p className="text-xs text-destructive">{editErrors.roomName.message}</p>}
+                <input
+                  type="text"
+                  placeholder="Room type"
+                  {...registerEdit("roomType", {
+                    required: "Room type is required.",
+                    validate: (value) => value.trim().length > 0 || "Room type cannot be empty.",
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                />
+                {editErrors.roomType && <p className="text-xs text-destructive">{editErrors.roomType.message}</p>}
+                <select
+                  {...registerEdit("siteId", {
+                    valueAsNumber: true,
+                    min: { value: 1, message: "Please select a valid site." },
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                >
+                  {sites.map((site) => (
+                    <option key={site.siteId} value={site.siteId}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+                {editErrors.siteId && <p className="text-xs text-destructive">{editErrors.siteId.message}</p>}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setEditRoomId(null)}
+                    className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

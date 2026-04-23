@@ -1,34 +1,29 @@
 import api from "./axios";
 import type { ApiResponse } from "./apiTypes";
-import { unwrapAxiosApiData } from "./apiTypes";
+import { unwrapAxiosApiData, unwrapAxiosApiDataAllowNull } from "./apiTypes";
 
 export interface OutcomeDto {
   outcomeId: number;
   appointmentId: number;
-  clinicalNotes: string | null;
-  diagnosisCodes: string | null;
-  treatmentPlan: string | null;
-  followUpDate: string | null;
-  status: string;
+  outcome: string;
+  notes: string | null;
+  markedBy: number | null;
+  markedDate: string;
 }
 
 export async function createOutcome(
   appointmentId: number,
   payload: {
-    clinicalNotes?: string;
-    diagnosisCodes?: string;
-    treatmentPlan?: string;
-    followUpDate?: string;
+    outcome: string;
+    notes?: string;
+    markedBy?: number;
   }
 ): Promise<OutcomeDto> {
   const res = await api.post<ApiResponse<OutcomeDto>>(`/outcome/${appointmentId}`, payload);
   return unwrapAxiosApiData(res);
 }
 
-export async function markOutcomeNoShow(
-  appointmentId: number,
-  payload?: { reason?: string }
-): Promise<OutcomeDto> {
-  const res = await api.post<ApiResponse<OutcomeDto>>(`/outcome/${appointmentId}/no-show`, payload ?? {});
-  return unwrapAxiosApiData(res);
+export async function getOutcomeByAppointment(appointmentId: number): Promise<OutcomeDto | null> {
+  const res = await api.get<ApiResponse<OutcomeDto | null>>(`/outcome/${appointmentId}`);
+  return unwrapAxiosApiDataAllowNull(res);
 }

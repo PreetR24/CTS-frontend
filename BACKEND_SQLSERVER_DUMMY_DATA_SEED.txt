@@ -1,0 +1,296 @@
+CareSchedule SQL Server dummy seed script (post-migration)
+===========================================================
+
+How to use
+----------
+1) Run migrations first so schema exists.
+2) Open SQL Server Management Studio.
+3) Select your CareSchedule database.
+4) Run this script as a single batch.
+
+Notes
+-----
+- This script is re-runnable: it clears existing data first (child -> parent order).
+- It inserts realistic test data for all main tables.
+- Provider uses one-to-one mapping with User (ProviderID = UserID).
+
+```sql
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRY
+    BEGIN TRAN;
+
+    /* -------------------------
+       CLEANUP (safe re-run)
+       ------------------------- */
+    DELETE FROM [AppointmentChange];
+    DELETE FROM [ReminderSchedule];
+    DELETE FROM [Outcome];
+    DELETE FROM [CheckIn];
+    DELETE FROM [ChargeRef];
+    DELETE FROM [ResourceHold];
+    DELETE FROM [CalendarEvent];
+    DELETE FROM [Notification];
+    DELETE FROM [LeaveImpact];
+    DELETE FROM [LeaveRequest];
+    DELETE FROM [RosterAssignment];
+    DELETE FROM [OnCallCoverage];
+    DELETE FROM [Roster];
+    DELETE FROM [Waitlist];
+    DELETE FROM [PublishedSlot];
+    DELETE FROM [AvailabilityBlock];
+    DELETE FROM [AvailabilityTemplate];
+    DELETE FROM [ProviderService];
+    DELETE FROM [Appointment];
+    DELETE FROM [Holiday];
+    DELETE FROM [Blackout];
+    DELETE FROM [ShiftTemplate];
+    DELETE FROM [Room];
+    DELETE FROM [CapacityRule];
+    DELETE FROM [SLA];
+    DELETE FROM [SystemConfig];
+    DELETE FROM [OpsReport];
+    DELETE FROM [AuditLog];
+    DELETE FROM [Provider];
+    DELETE FROM [Service];
+    DELETE FROM [Site];
+    DELETE FROM [User];
+
+    /* -------------------------
+       MASTER TABLES
+       ------------------------- */
+    SET IDENTITY_INSERT [User] ON;
+    INSERT INTO [User] ([UserID],[Name],[Role],[Email],[Phone],[Status]) VALUES
+    (1,'Admin User','Admin','admin@care.com','9000000001','Active'),
+    (2,'Dr. Asha Menon','Provider','provider1@care.com','9000000002','Active'),
+    (3,'Frontdesk Ravi','FrontDesk','frontdesk1@care.com','9000000003','Active'),
+    (4,'Nurse Neha','Nurse','nurse1@care.com','9000000004','Active'),
+    (5,'Patient Priya','Patient','patient1@care.com','9000000005','Active'),
+    (6,'Operations Om','Operations','ops1@care.com','9000000006','Active'),
+    (7,'Dr. Kabir Shah','Provider','provider2@care.com','9000000007','Active'),
+    (8,'Frontdesk Sneha','FrontDesk','frontdesk2@care.com','9000000008','Active'),
+    (9,'Nurse Amit','Nurse','nurse2@care.com','9000000009','Active'),
+    (10,'Patient Arjun','Patient','patient2@care.com','9000000010','Active');
+    SET IDENTITY_INSERT [User] OFF;
+
+    INSERT INTO [Provider] ([ProviderID],[Name],[Specialty],[Credentials],[ContactInfo],[Status]) VALUES
+    (2,'Dr. Asha Menon','Dermatology','MBBS, MD','provider1@care.com','Active'),
+    (7,'Dr. Kabir Shah','General Medicine','MBBS, DNB','provider2@care.com','Active');
+
+    SET IDENTITY_INSERT [Site] ON;
+    INSERT INTO [Site] ([SiteID],[Name],[AddressJSON],[Timezone],[Status]) VALUES
+    (1,'City Clinic','{"line1":"MG Road","city":"Bengaluru","state":"KA","zip":"560001"}','Asia/Kolkata','Active'),
+    (2,'North Branch','{"line1":"Ring Road","city":"Bengaluru","state":"KA","zip":"560064"}','Asia/Kolkata','Active');
+    SET IDENTITY_INSERT [Site] OFF;
+
+    SET IDENTITY_INSERT [Room] ON;
+    INSERT INTO [Room] ([RoomID],[SiteID],[RoomName],[RoomType],[AttributesJSON],[Status]) VALUES
+    (1,1,'Consult-101','Consult','{"floor":1,"wheelchair":true}','Active'),
+    (2,1,'Consult-102','Consult','{"floor":1,"wheelchair":false}','Active'),
+    (3,2,'Procedure-201','Procedure','{"floor":2,"oxygen":true}','Active');
+    SET IDENTITY_INSERT [Room] OFF;
+
+    SET IDENTITY_INSERT [Service] ON;
+    INSERT INTO [Service] ([ServiceID],[Name],[VisitType],[DefaultDurationMin],[BufferBeforeMin],[BufferAfterMin],[Status]) VALUES
+    (1,'General Consultation','OPD',30,5,5,'Active'),
+    (2,'Dermatology Followup','OPD',20,5,5,'Active'),
+    (3,'Minor Procedure','Procedure',45,10,10,'Active');
+    SET IDENTITY_INSERT [Service] OFF;
+
+    SET IDENTITY_INSERT [ProviderService] ON;
+    INSERT INTO [ProviderService] ([PSID],[ProviderID],[ServiceID],[CustomDurationMin],[CustomBufferBeforeMin],[CustomBufferAfterMin],[Status]) VALUES
+    (1,2,1,30,5,5,'Active'),
+    (2,2,2,20,5,5,'Active'),
+    (3,7,1,30,5,5,'Active'),
+    (4,7,3,45,10,10,'Active');
+    SET IDENTITY_INSERT [ProviderService] OFF;
+
+    SET IDENTITY_INSERT [CapacityRule] ON;
+    INSERT INTO [CapacityRule] ([RuleID],[Scope],[ScopeID],[MaxApptsPerDay],[MaxConcurrentRooms],[BufferMin],[EffectiveFrom],[EffectiveTo],[Status]) VALUES
+    (1,'Global',NULL,120,20,5,'2026-01-01',NULL,'Active'),
+    (2,'Site',1,70,10,5,'2026-01-01',NULL,'Active'),
+    (3,'Provider',2,25,NULL,5,'2026-01-01',NULL,'Active');
+    SET IDENTITY_INSERT [CapacityRule] OFF;
+
+    SET IDENTITY_INSERT [SLA] ON;
+    INSERT INTO [SLA] ([SLAID],[Metric],[Scope],[TargetValue],[Unit],[Status]) VALUES
+    (1,'CheckInToRoom','Global',15,'Minutes','Active'),
+    (2,'RoomToProvider','Global',20,'Minutes','Active'),
+    (3,'Turnaround','Site',30,'Minutes','Active');
+    SET IDENTITY_INSERT [SLA] OFF;
+
+    SET IDENTITY_INSERT [SystemConfig] ON;
+    INSERT INTO [SystemConfig] ([ConfigID],[Key],[Value],[Scope],[UpdatedBy],[UpdatedDate]) VALUES
+    (1,'booking.maxDaysAhead','30','Global',1,GETDATE()),
+    (2,'queue.autoRefreshSec','20','Global',6,GETDATE()),
+    (3,'slot.defaultDuration','15','Global',1,GETDATE());
+    SET IDENTITY_INSERT [SystemConfig] OFF;
+
+    SET IDENTITY_INSERT [Blackout] ON;
+    INSERT INTO [Blackout] ([BlackoutID],[SiteID],[StartDate],[EndDate],[Reason],[Status]) VALUES
+    (1,1,'2026-06-10','2026-06-10','Maintenance window','Active'),
+    (2,2,'2026-08-15','2026-08-15','Independence Day reduced ops','Active');
+    SET IDENTITY_INSERT [Blackout] OFF;
+
+    SET IDENTITY_INSERT [Holiday] ON;
+    INSERT INTO [Holiday] ([HolidayID],[SiteID],[Date],[Description],[Status]) VALUES
+    (1,1,'2026-01-26','Republic Day','Active'),
+    (2,2,'2026-01-26','Republic Day','Active'),
+    (3,1,'2026-08-15','Independence Day','Active');
+    SET IDENTITY_INSERT [Holiday] OFF;
+
+    /* -------------------------
+       PROVIDER AVAILABILITY + SLOTS
+       ------------------------- */
+    SET IDENTITY_INSERT [AvailabilityTemplate] ON;
+    INSERT INTO [AvailabilityTemplate] ([TemplateID],[ProviderID],[SiteID],[DayOfWeek],[StartTime],[EndTime],[SlotDurationMin],[Status]) VALUES
+    (1,2,1,1,'09:00','13:00',15,'Active'), -- Monday
+    (2,2,1,3,'14:00','18:00',15,'Active'), -- Wednesday
+    (3,7,2,2,'10:00','16:00',20,'Active'); -- Tuesday
+    SET IDENTITY_INSERT [AvailabilityTemplate] OFF;
+
+    SET IDENTITY_INSERT [AvailabilityBlock] ON;
+    INSERT INTO [AvailabilityBlock] ([BlockID],[ProviderID],[SiteID],[Date],[StartTime],[EndTime],[Reason],[Status]) VALUES
+    (1,2,1,'2026-05-20','10:00','11:00','Emergency meeting','Active'),
+    (2,7,2,'2026-05-21','12:00','13:00','Procedure prep','Active');
+    SET IDENTITY_INSERT [AvailabilityBlock] OFF;
+
+    SET IDENTITY_INSERT [PublishedSlot] ON;
+    INSERT INTO [PublishedSlot] ([PubSlotID],[ProviderID],[ServiceID],[SiteID],[SlotDate],[StartTime],[EndTime],[Status]) VALUES
+    (1,2,1,1,'2026-05-20','09:00','09:30','Open'),
+    (2,2,2,1,'2026-05-20','09:30','10:00','Open'),
+    (3,7,1,2,'2026-05-21','10:00','10:30','Open'),
+    (4,7,3,2,'2026-05-21','10:30','11:15','Open');
+    SET IDENTITY_INSERT [PublishedSlot] OFF;
+
+    /* -------------------------
+       APPOINTMENT FLOW
+       ------------------------- */
+    SET IDENTITY_INSERT [Appointment] ON;
+    INSERT INTO [Appointment] ([AppointmentID],[PatientID],[ProviderID],[ServiceID],[SiteID],[RoomID],[SlotDate],[StartTime],[EndTime],[Status],[BookingChannel]) VALUES
+    (1,5,2,1,1,NULL,'2026-05-20','09:00','09:30','Booked','FrontDesk'),
+    (2,10,7,1,2,NULL,'2026-05-21','10:00','10:30','Booked','PatientPortal'),
+    (3,5,2,2,1,1,'2026-05-20','09:30','10:00','CheckedIn','FrontDesk');
+    SET IDENTITY_INSERT [Appointment] OFF;
+
+    SET IDENTITY_INSERT [Waitlist] ON;
+    INSERT INTO [Waitlist] ([WaitID],[PatientID],[ProviderID],[ServiceID],[SiteID],[RequestedDate],[Priority],[Status]) VALUES
+    (1,10,2,1,1,'2026-05-22','Normal','Open'),
+    (2,5,7,3,2,'2026-05-23','High','Open');
+    SET IDENTITY_INSERT [Waitlist] OFF;
+
+    SET IDENTITY_INSERT [CheckIn] ON;
+    INSERT INTO [CheckIn] ([CheckInID],[AppointmentID],[CheckInTime],[RoomAssigned],[TokenNo],[Status]) VALUES
+    (1,3,DATEADD(MINUTE,-30,GETDATE()),1,'T-101','InRoom'),
+    (2,1,DATEADD(MINUTE,-10,GETDATE()),2,'T-102','RoomAssigned');
+    SET IDENTITY_INSERT [CheckIn] OFF;
+
+    SET IDENTITY_INSERT [ResourceHold] ON;
+    INSERT INTO [ResourceHold] ([HoldID],[SiteID],[ResourceType],[ResourceID],[StartTime],[EndTime],[Reason],[Status]) VALUES
+    (1,1,'Room',1,'2026-05-20T09:30:00','2026-05-20T10:00:00','Assigned to AppointmentID 3','Held'),
+    (2,1,'Room',2,'2026-05-20T09:00:00','2026-05-20T09:30:00','Assigned to AppointmentID 1','Held');
+    SET IDENTITY_INSERT [ResourceHold] OFF;
+
+    SET IDENTITY_INSERT [ChargeRef] ON;
+    INSERT INTO [ChargeRef] ([ChargeRefID],[AppointmentID],[ProviderID],[ServiceID],[Amount],[Currency],[Status]) VALUES
+    (1,1,2,1,600.00,'INR','Open'),
+    (2,2,7,1,700.00,'INR','Open'),
+    (3,3,2,2,500.00,'INR','Settled');
+    SET IDENTITY_INSERT [ChargeRef] OFF;
+
+    SET IDENTITY_INSERT [Outcome] ON;
+    INSERT INTO [Outcome] ([OutcomeID],[AppointmentID],[Outcome],[Notes],[MarkedBy],[MarkedDate]) VALUES
+    (1,3,'Completed','Patient stable and discharged',4,GETDATE());
+    SET IDENTITY_INSERT [Outcome] OFF;
+
+    SET IDENTITY_INSERT [AppointmentChange] ON;
+    INSERT INTO [AppointmentChange] ([ChangeID],[AppointmentID],[ChangeType],[OldValuesJSON],[NewValuesJSON],[Reason],[ChangedBy],[ChangedDate]) VALUES
+    (1,1,'StatusUpdate','{"status":"Booked"}','{"status":"CheckedIn"}','Frontdesk check-in',3,GETDATE()),
+    (2,3,'RoomAssign','{"roomId":null}','{"roomId":1}','Assigned by nurse/frontdesk',4,GETDATE());
+    SET IDENTITY_INSERT [AppointmentChange] OFF;
+
+    SET IDENTITY_INSERT [ReminderSchedule] ON;
+    INSERT INTO [ReminderSchedule] ([RemindID],[AppointmentID],[Channel],[RemindOffsetMin],[Status]) VALUES
+    (1,1,'SMS',60,'Pending'),
+    (2,2,'Email',120,'Sent');
+    SET IDENTITY_INSERT [ReminderSchedule] OFF;
+
+    /* -------------------------
+       ROSTER / OPERATIONS FLOW
+       ------------------------- */
+    SET IDENTITY_INSERT [ShiftTemplate] ON;
+    INSERT INTO [ShiftTemplate] ([ShiftTemplateID],[Name],[StartTime],[EndTime],[BreakMinutes],[Role],[SiteID],[Status]) VALUES
+    (1,'Morning Nurse Shift','08:00','16:00',30,'Nurse',1,'Active'),
+    (2,'Morning FrontDesk Shift','08:00','16:00',30,'FrontDesk',1,'Active'),
+    (3,'Evening Nurse Shift','16:00','23:00',30,'Nurse',2,'Active');
+    SET IDENTITY_INSERT [ShiftTemplate] OFF;
+
+    SET IDENTITY_INSERT [Roster] ON;
+    INSERT INTO [Roster] ([RosterID],[SiteID],[Department],[PeriodStart],[PeriodEnd],[PublishedBy],[PublishedDate],[Status]) VALUES
+    (1,1,'Nurse','2026-05-19','2026-05-25',6,GETDATE(),'Published'),
+    (2,1,'FrontDesk','2026-05-19','2026-05-25',6,GETDATE(),'Published');
+    SET IDENTITY_INSERT [Roster] OFF;
+
+    SET IDENTITY_INSERT [RosterAssignment] ON;
+    INSERT INTO [RosterAssignment] ([AssignmentID],[RosterID],[UserID],[ShiftTemplateID],[Date],[Role],[Status]) VALUES
+    (1,1,4,1,'2026-05-20','Nurse','Assigned'),
+    (2,2,3,2,'2026-05-20','FrontDesk','Assigned'),
+    (3,1,9,3,'2026-05-21','Nurse','Assigned');
+    SET IDENTITY_INSERT [RosterAssignment] OFF;
+
+    SET IDENTITY_INSERT [OnCallCoverage] ON;
+    INSERT INTO [OnCallCoverage] ([OnCallID],[SiteID],[Department],[Date],[StartTime],[EndTime],[PrimaryUserID],[BackupUserID],[Status]) VALUES
+    (1,1,'Nurse','2026-05-20','08:00','16:00',4,9,'Active'),
+    (2,1,'FrontDesk','2026-05-20','08:00','16:00',3,8,'Active');
+    SET IDENTITY_INSERT [OnCallCoverage] OFF;
+
+    SET IDENTITY_INSERT [LeaveRequest] ON;
+    INSERT INTO [LeaveRequest] ([LeaveID],[UserID],[StartDate],[EndDate],[LeaveType],[Reason],[Status],[SubmittedDate]) VALUES
+    (1,4,'2026-05-25','2026-05-26','Sick','Fever and rest advised','Pending',GETDATE()),
+    (2,3,'2026-05-27','2026-05-27','Personal','Family event','Approved',GETDATE());
+    SET IDENTITY_INSERT [LeaveRequest] OFF;
+
+    SET IDENTITY_INSERT [LeaveImpact] ON;
+    INSERT INTO [LeaveImpact] ([ImpactID],[LeaveID],[ImpactType],[ImpactJSON],[Status],[ResolvedBy],[ResolvedDate]) VALUES
+    (1,1,'RosterGap','{"date":"2026-05-25","missingRole":"Nurse","siteId":1}','Open',NULL,NULL),
+    (2,1,'OnCallGap','{"date":"2026-05-25","department":"Nurse","siteId":1}','Resolved',6,GETDATE());
+    SET IDENTITY_INSERT [LeaveImpact] OFF;
+
+    /* -------------------------
+       SUPPORT TABLES
+       ------------------------- */
+    SET IDENTITY_INSERT [Notification] ON;
+    INSERT INTO [Notification] ([NotificationID],[UserID],[Message],[Category],[Status],[CreatedDate]) VALUES
+    (1,4,'New roster published for this week.','Roster','Unread',GETDATE()),
+    (2,3,'You have a frontdesk shift assigned on 2026-05-20.','Roster','Unread',GETDATE()),
+    (3,6,'Leave request pending impact resolution.','Leave','Unread',GETDATE());
+    SET IDENTITY_INSERT [Notification] OFF;
+
+    SET IDENTITY_INSERT [AuditLog] ON;
+    INSERT INTO [AuditLog] ([AuditID],[UserID],[Action],[Resource],[Metadata],[Timestamp]) VALUES
+    (1,1,'Created','Site','{"siteId":1}',GETDATE()),
+    (2,6,'Assigned','RosterAssignment','{"assignmentId":2}',GETDATE()),
+    (3,3,'CheckIn','Appointment','{"appointmentId":1}',GETDATE());
+    SET IDENTITY_INSERT [AuditLog] OFF;
+
+    SET IDENTITY_INSERT [CalendarEvent] ON;
+    INSERT INTO [CalendarEvent] ([EventID],[SiteID],[ProviderID],[RoomID],[EntityType],[EntityID],[StartTime],[EndTime],[Status]) VALUES
+    (1,1,2,1,'Appointment',3,'2026-05-20T09:30:00','2026-05-20T10:00:00','Active'),
+    (2,2,7,3,'Appointment',2,'2026-05-21T10:00:00','2026-05-21T10:30:00','Active');
+    SET IDENTITY_INSERT [CalendarEvent] OFF;
+
+    SET IDENTITY_INSERT [OpsReport] ON;
+    INSERT INTO [OpsReport] ([ReportID],[Scope],[MetricsJSON],[GeneratedDate]) VALUES
+    (1,'Weekly Operations','{"coverageRate":92,"leaveApprovalRate":80}',GETDATE()),
+    (2,'Site 1','{"avgWaitMinutes":18,"roomUtilization":74}',GETDATE());
+    SET IDENTITY_INSERT [OpsReport] OFF;
+
+    COMMIT TRAN;
+    PRINT 'Dummy seed inserted successfully.';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRAN;
+    THROW;
+END CATCH;
+```

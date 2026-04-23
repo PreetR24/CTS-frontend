@@ -2,14 +2,17 @@ import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from "recharts";
 import { Download, TrendingUp, TrendingDown } from "lucide-react";
 import { exportReports, searchReports } from "../../../api/reportsApi";
+import { isAxiosError } from "axios";
 
 export default function AdminReports() {
   const [reportMetrics, setReportMetrics] = useState<Record<string, unknown>[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        setErrorMessage(null);
         const reports = await searchReports({ scope: "Operations" });
         if (cancelled) return;
         const metrics: Record<string, unknown>[] = [];
@@ -22,7 +25,11 @@ export default function AdminReports() {
           }
         }
         setReportMetrics(metrics);
-      } catch {
+      } catch (error) {
+        const msg = isAxiosError<{ message?: string }>(error)
+          ? error.response?.data?.message
+          : undefined;
+        setErrorMessage(msg ?? "Could not load report metrics.");
         if (!cancelled) setReportMetrics([]);
       }
     })();
@@ -57,27 +64,10 @@ export default function AdminReports() {
       utilization: Number(m.utilization ?? 0),
     }));
 
-  const avgUtilization = (() => {
-    const rows = providerUtilization.map((p) => p.utilization).filter((x) => Number.isFinite(x));
-    if (rows.length === 0) return 0;
-    return Math.round(rows.reduce((a, b) => a + b, 0) / rows.length);
-  })();
-
-  const avgWait = (() => {
-    const waits = reportMetrics.map((m) => Number(m.waitMinutes ?? 0)).filter((x) => x > 0);
-    if (waits.length === 0) return 0;
-    return Math.round(waits.reduce((a, b) => a + b, 0) / waits.length);
-  })();
-
   const noShowData = reportMetrics.map((m, i) => ({
     month: String(m.month ?? `M${i + 1}`),
     rate: Number(m.noShowRate ?? 0),
   }));
-
-  const avgNoShow = (() => {
-    if (noShowData.length === 0) return 0;
-    return Math.round(noShowData.reduce((a, b) => a + b.rate, 0) / noShowData.length);
-  })();
 
   return (
     <div className="p-6">
@@ -85,49 +75,31 @@ export default function AdminReports() {
         <div>
           <h1 className="text-xl font-medium text-foreground">Analytics & Reports</h1>
           <p className="text-sm text-muted-foreground mt-1">Utilization, no-show rates, and performance metrics</p>
+          {errorMessage && <p className="text-sm text-destructive mt-2">{errorMessage}</p>}
         </div>
         <button
           onClick={async () => {
-            const blob = await exportReports({ scope: "Operations" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "report.csv";
-            a.click();
-            URL.revokeObjectURL(url);
+            try {
+              setErrorMessage(null);
+              const blob = await exportReports({ scope: "Operations" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "report.csv";
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch (error) {
+              const msg = isAxiosError<{ message?: string }>(error)
+                ? error.response?.data?.message
+                : undefined;
+              setErrorMessage(msg ?? "Could not export report.");
+            }
           }}
           className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors text-sm"
         >
           <Download className="w-4 h-4" />
           Export Report
         </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-xs text-muted-foreground">Avg Utilization Rate</p>
-            <TrendingUp className="w-4 h-4 text-[#a9d4b8]" />
-          </div>
-          <p className="text-2xl font-medium text-foreground">{avgUtilization}%</p>
-          <p className="text-xs text-[#a9d4b8] mt-1">+5.2% from last month</p>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-xs text-muted-foreground">No-Show Rate</p>
-            <TrendingDown className="w-4 h-4 text-[#eb9d9d]" />
-          </div>
-          <p className="text-2xl font-medium text-foreground">{avgNoShow}%</p>
-          <p className="text-xs text-[#eb9d9d] mt-1">-1.2% from last month</p>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-xs text-muted-foreground">Avg Wait Time</p>
-            <TrendingDown className="w-4 h-4 text-[#a9d4b8]" />
-          </div>
-          <p className="text-2xl font-medium text-foreground">{avgWait} min</p>
-          <p className="text-xs text-[#a9d4b8] mt-1">-3 min from last month</p>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">

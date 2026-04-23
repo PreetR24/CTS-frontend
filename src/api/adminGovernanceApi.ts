@@ -35,14 +35,19 @@ export interface SlaDto {
 export interface AuditLogDto {
   auditId: number;
   userId: number | null;
+  userName: string | null;
   action: string;
   resource: string;
   timestamp: string;
   metadata: string | null;
 }
 
-export async function searchBlackouts(siteId: number): Promise<BlackoutDto[]> {
-  const res = await api.get<ApiResponse<unknown>>("/blackouts", { params: { siteId } });
+export async function searchBlackouts(params: {
+  siteId: number;
+  startDate?: string;
+  endDate?: string;
+}): Promise<BlackoutDto[]> {
+  const res = await api.get<ApiResponse<unknown>>("/blackouts", { params });
   return unwrapAxiosApiList<BlackoutDto>(res);
 }
 
@@ -58,6 +63,11 @@ export async function createBlackout(payload: {
 
 export async function cancelBlackout(blackoutId: number): Promise<void> {
   const res = await api.delete<ApiResponse<object>>(`/blackouts/${blackoutId}`);
+  unwrapAxiosApiData(res);
+}
+
+export async function activateBlackout(blackoutId: number): Promise<void> {
+  const res = await api.put<ApiResponse<object>>(`/blackouts/${blackoutId}/activate`, {});
   unwrapAxiosApiData(res);
 }
 
@@ -147,6 +157,7 @@ export async function deleteSla(slaId: number): Promise<void> {
 
 export async function searchAuditLogs(params?: {
   userId?: number;
+  userName?: string;
   action?: string;
   resource?: string;
   from?: string;

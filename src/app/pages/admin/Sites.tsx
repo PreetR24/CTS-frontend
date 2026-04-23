@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit, MapPin } from "lucide-react";
+import { isAxiosError } from "axios";
+import { useForm } from "react-hook-form";
 import {
   activateSite,
   createSite,
   deactivateSite,
-  fetchRooms,
   fetchSites,
   getSiteById,
   updateSite,
 } from "../../../api/masterdataApi";
-import { mapSiteRows, type AdminSiteRow } from "../../../api/adminViewMappers";
+import type { AdminSiteRow } from "../../../api/adminViewMappers";
+
+type SiteFormValues = {
+  name: string;
+  address: string;
+  timezone: string;
+};
 
 export default function AdminSites() {
   const [showModal, setShowModal] = useState(false);
@@ -18,14 +25,33 @@ export default function AdminSites() {
   const [filterStatus, setFilterStatus] = useState("Active");
   const [sites, setSites] = useState<AdminSiteRow[]>([]);
   const [editSiteId, setEditSiteId] = useState<number | null>(null);
-  const [editSiteName, setEditSiteName] = useState("");
-  const [editSiteAddress, setEditSiteAddress] = useState("");
-  const [editSiteTimezone, setEditSiteTimezone] = useState("Asia/Kolkata");
-  const [newSiteName, setNewSiteName] = useState("");
-  const [newSiteAddress, setNewSiteAddress] = useState("");
-  const [newSiteTimezone, setNewSiteTimezone] = useState("Asia/Kolkata");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    reset: resetCreateForm,
+    formState: { errors: createErrors },
+  } = useForm<SiteFormValues>({
+    defaultValues: {
+      name: "",
+      address: "",
+      timezone: "Asia/Kolkata",
+    },
+  });
+  const {
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEditForm,
+    formState: { errors: editErrors },
+  } = useForm<SiteFormValues>({
+    defaultValues: {
+      name: "",
+      address: "",
+      timezone: "Asia/Kolkata",
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -33,11 +59,18 @@ export default function AdminSites() {
       try {
         setLoading(true);
         setLoadError(null);
-        const [siteList, roomList] = await Promise.all([
-          fetchSites({ page: 1, pageSize: 250 }),
-          fetchRooms({ page: 1, pageSize: 500 }),
-        ]);
-        if (!cancelled) setSites(mapSiteRows(siteList, roomList));
+        const siteList = await fetchSites({ page: 1, pageSize: 250 });
+        if (!cancelled) {
+          setSites(
+            siteList.map((s) => ({
+              id: s.siteId,
+              name: s.name,
+              location: s.addressJson ?? "—",
+              rooms: 0,
+              status: s.status,
+            }))
+          );
+        }
       } catch {
         if (!cancelled) setLoadError("Could not load sites.");
       } finally {
@@ -61,65 +94,102 @@ export default function AdminSites() {
   );
 
   const openCreateModal = () => setShowModal(true);
-  const closeCreateModal = () => setShowModal(false);
-  const openEditModal = async (siteId: number, siteName: string, siteLocation: string) => {
-    const detail = await getSiteById(siteId);
-    setEditSiteId(siteId);
-    setEditSiteName(siteName);
-    setEditSiteAddress(siteLocation === "—" ? "" : siteLocation);
-    setEditSiteTimezone(detail.timezone || "Asia/Kolkata");
-    setShowEditModal(true);
+  const closeCreateModal = () => {
+    setShowModal(false);
+    resetCreateForm({ name: "", address: "", timezone: "Asia/Kolkata" });
   };
-  const closeEditModal = () => setShowEditModal(false);
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
+  const openEditModal = async (siteId: number, siteName: string, siteLocation: string) => {
+    try {
+      setActionMessage(null);
+      const detail = await getSiteById(siteId);
+      setEditSiteId(siteId);
+      resetEditForm({
+        name: siteName,
+        address: siteLocation === "—" ? "" : siteLocation,
+        timezone: detail.timezone || "Asia/Kolkata",
+      });
+      setShowEditModal(true);
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not load site details."));
+    }
+  };
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setEditSiteId(null);
+  };
 
   const deactivateSiteRow = async (siteId: number) => {
-    await deactivateSite(siteId);
-    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, status: "Inactive" } : s)));
+    try {
+      setActionMessage(null);
+      await deactivateSite(siteId);
+      setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, status: "Inactive" } : s)));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not deactivate this site.";
+      setActionMessage(`Site not deactivated. Reason: ${msg}`);
+    }
   };
 
   const activateSiteRow = async (siteId: number) => {
-    await activateSite(siteId);
-    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, status: "Active" } : s)));
+    try {
+      setActionMessage(null);
+      await activateSite(siteId);
+      setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, status: "Active" } : s)));
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not activate site."));
+    }
   };
 
-  const createSiteFromModal = async () => {
-    if (!newSiteName.trim()) return;
-    const created = await createSite({
-      name: newSiteName.trim(),
-      addressJson: newSiteAddress.trim() || undefined,
-      timezone: newSiteTimezone,
-    });
-    setSites((prev) => [
-      ...prev,
-      {
-        id: created.siteId,
-        name: created.name,
-        location: created.addressJson ?? "N/A",
-        rooms: 0,
-        status: created.status,
-      },
-    ]);
-    setNewSiteName("");
-    setNewSiteAddress("");
-    setNewSiteTimezone("Asia/Kolkata");
-    setShowModal(false);
+  const createSiteFromModal = async (values: SiteFormValues) => {
+    try {
+      setActionMessage(null);
+      const created = await createSite({
+        name: values.name.trim(),
+        addressJson: values.address.trim() || undefined,
+        timezone: values.timezone,
+      });
+      setSites((prev) => [
+        ...prev,
+        {
+          id: created.siteId,
+          name: created.name,
+          location: created.addressJson ?? "N/A",
+          rooms: 0,
+          status: created.status,
+        },
+      ]);
+      closeCreateModal();
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not create site."));
+    }
   };
 
-  const saveEditedSite = async () => {
-    if (editSiteId == null || !editSiteName.trim()) return;
-    const updated = await updateSite(editSiteId, {
-      name: editSiteName.trim(),
-      addressJson: editSiteAddress.trim() || undefined,
-      timezone: editSiteTimezone,
-    });
-    setSites((prev) =>
-      prev.map((s) =>
-        s.id === editSiteId
-          ? { ...s, name: updated.name, location: updated.addressJson ?? "—", status: updated.status }
-          : s
-      )
-    );
-    setShowEditModal(false);
+  const saveEditedSite = async (values: SiteFormValues) => {
+    if (editSiteId == null) return;
+    try {
+      setActionMessage(null);
+      const updated = await updateSite(editSiteId, {
+        name: values.name.trim(),
+        addressJson: values.address.trim() || undefined,
+        timezone: values.timezone,
+      });
+      setSites((prev) =>
+        prev.map((s) =>
+          s.id === editSiteId
+            ? { ...s, name: updated.name, location: updated.addressJson ?? "—", status: updated.status }
+            : s
+        )
+      );
+      closeEditModal();
+    } catch (error) {
+      setActionMessage(getErrorMessage(error, "Could not update site."));
+    }
   };
 
   return (
@@ -128,6 +198,7 @@ export default function AdminSites() {
         <h1 className="text-xl font-medium text-foreground">Sites</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage clinic locations</p>
         {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
+        {actionMessage && <p className="text-sm text-destructive mt-2">{actionMessage}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -188,7 +259,6 @@ export default function AdminSites() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">{site.name}</p>
-                        <p className="text-xs text-muted-foreground">ID: {site.id}</p>
                       </div>
                     </div>
                   </td>
@@ -241,53 +311,62 @@ export default function AdminSites() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg">
             <h3 className="text-base font-medium text-foreground mb-4">Add New Site</h3>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateSubmit(createSiteFromModal)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Site Name</label>
                 <input
                   type="text"
                   placeholder="Apollo Clinic - Location"
-                  value={newSiteName}
-                  onChange={(e) => setNewSiteName(e.target.value)}
+                  {...registerCreate("name", {
+                    required: "Site name is required.",
+                    validate: (value) =>
+                      value.trim().length > 0 || "Site name cannot be empty.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.name && <p className="text-xs text-destructive mt-1">{createErrors.name.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Full Address</label>
                 <input
                   type="text"
                   placeholder="Street, Area, City"
-                  value={newSiteAddress}
-                  onChange={(e) => setNewSiteAddress(e.target.value)}
+                  {...registerCreate("address", {
+                    maxLength: { value: 500, message: "Address is too long." },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.address && <p className="text-xs text-destructive mt-1">{createErrors.address.message}</p>}
               </div>
               <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Timezone</label>
                   <select
-                    value={newSiteTimezone}
-                    onChange={(e) => setNewSiteTimezone(e.target.value)}
+                    {...registerCreate("timezone", {
+                      required: "Timezone is required.",
+                    })}
                     className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     <option>Asia/Kolkata</option>
                     <option>Asia/Dubai</option>
                   </select>
+                  {createErrors.timezone && <p className="text-xs text-destructive mt-1">{createErrors.timezone.message}</p>}
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeCreateModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void createSiteFromModal()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Create Site
-              </button>
-            </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Create Site
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -295,43 +374,54 @@ export default function AdminSites() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
             <h3 className="text-base font-medium text-foreground mb-4">Edit Site</h3>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Site Name</label>
-            <input
-              type="text"
-              value={editSiteName}
-              onChange={(e) => setEditSiteName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Address</label>
-            <input
-              type="text"
-              value={editSiteAddress}
-              onChange={(e) => setEditSiteAddress(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Timezone</label>
-            <select
-              value={editSiteTimezone}
-              onChange={(e) => setEditSiteTimezone(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option>Asia/Kolkata</option>
-              <option>Asia/Dubai</option>
-            </select>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeEditModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+            <form onSubmit={handleEditSubmit(saveEditedSite)}>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Site Name</label>
+              <input
+                type="text"
+                {...registerEdit("name", {
+                  required: "Site name is required.",
+                  validate: (value) =>
+                    value.trim().length > 0 || "Site name cannot be empty.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.name && <p className="text-xs text-destructive mt-1">{editErrors.name.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Address</label>
+              <input
+                type="text"
+                {...registerEdit("address", {
+                  maxLength: { value: 500, message: "Address is too long." },
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.address && <p className="text-xs text-destructive mt-1">{editErrors.address.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Timezone</label>
+              <select
+                {...registerEdit("timezone", {
+                  required: "Timezone is required.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                Cancel
-              </button>
-              <button
-                onClick={() => void saveEditedSite()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Save
-              </button>
-            </div>
+                <option>Asia/Kolkata</option>
+                <option>Asia/Dubai</option>
+              </select>
+              {editErrors.timezone && <p className="text-xs text-destructive mt-1">{editErrors.timezone.message}</p>}
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

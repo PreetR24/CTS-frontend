@@ -14,6 +14,7 @@ type ProviderPatientRow = {
 export default function ProviderPatients() {
   const [searchQuery, setSearchQuery] = useState("");
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,15 +108,72 @@ export default function ProviderPatients() {
                       </p>
                     </div>
                   </div>
-                  <button className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs">
+                  <button
+                    onClick={() => setSelectedPatientId(patient.id)}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs"
+                  >
                     View Records
                   </button>
                 </div>
               </div>
             ))}
+            {filteredPatients.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-6">No patients found.</p>
+            )}
           </div>
         </div>
       </div>
+      {selectedPatientId != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-3xl shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-1">Patient Records</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {patients.find((p) => p.id === selectedPatientId)?.name ?? `Patient ${selectedPatientId}`}
+            </p>
+            <div className="max-h-[420px] overflow-auto rounded-lg border border-border">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Date</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Time</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Service</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Site</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {appointments
+                    .filter((a) => a.patientId === selectedPatientId)
+                    .sort((a, b) =>
+                      `${b.slotDate} ${b.startTime}`.localeCompare(`${a.slotDate} ${a.startTime}`)
+                    )
+                    .map((a) => (
+                      <tr key={a.appointmentId} className="border-b border-border last:border-0">
+                        <td className="py-2.5 px-3 text-sm text-foreground">{a.slotDate}</td>
+                        <td className="py-2.5 px-3 text-sm text-muted-foreground">
+                          {a.startTime} - {a.endTime}
+                        </td>
+                        <td className="py-2.5 px-3 text-sm text-muted-foreground">
+                          {a.serviceName?.trim() || `Service ${a.serviceId}`}
+                        </td>
+                        <td className="py-2.5 px-3 text-sm text-muted-foreground">
+                          {a.siteName?.trim() || `Site ${a.siteId}`}
+                        </td>
+                        <td className="py-2.5 px-3 text-sm text-foreground">{a.status}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              onClick={() => setSelectedPatientId(null)}
+              className="mt-4 w-full px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

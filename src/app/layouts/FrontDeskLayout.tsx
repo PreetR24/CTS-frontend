@@ -4,6 +4,7 @@ import { Header } from "../components/Header";
 import {
   LayoutDashboard,
   Calendar,
+  CalendarClock,
   UserPlus,
   ListChecks,
   Users,
@@ -13,6 +14,7 @@ import {
 export default function FrontDeskLayout() {
   const sidebarItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/frontdesk" },
+    { icon: CalendarClock, label: "My Schedule", path: "/frontdesk/schedule" },
     { icon: UserPlus, label: "Book Appointment", path: "/frontdesk/appointments" },
     { icon: ListChecks, label: "Check-In", path: "/frontdesk/checkin" },
     { icon: Calendar, label: "Queue Board", path: "/frontdesk/rooms" },
@@ -24,7 +26,7 @@ export default function FrontDeskLayout() {
     <div className="flex h-screen bg-background">
       <Sidebar items={sidebarItems} roleColor="bg-gradient-to-r from-[#f0b895] to-[#d89768]" />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header title="Front Desk Portal" userName="Amit Patel" userRole="Front Desk Officer" />
+        <Header title="Front Desk Portal" enableProfileEdit />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

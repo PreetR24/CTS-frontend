@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { User, Stethoscope, Clock, CheckCircle, Search, ArrowRight } from "lucide-react";
+import { isAxiosError } from "axios";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   fetchProviders,
-  fetchProvidersByService,
+  fetchServicesByProvider,
   fetchServices,
   fetchSites,
   getProviderById,
@@ -12,12 +14,15 @@ import {
 import { mapServiceRow, type AdminServiceRow } from "../../../api/adminViewMappers";
 import { fetchUsers, type UserDto } from "../../../api/usersApi";
 import { searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
-import { bookAppointment, createWaitlist } from "../../../api/appointmentsApi";
+import { bookAppointment, createWaitlist, fillWaitlist } from "../../../api/appointmentsApi";
 import { createCharge, searchCharges } from "../../../api/frontdeskBillingApi";
 
 type BookingProvider = { id: number; name: string; specialty: string };
 
 export default function FrontDeskBooking() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const waitlistPrefillAppliedRef = useRef(false);
   const [step, setStep] = useState(1);
   const [selectedPatient, setSelectedPatient] = useState<UserDto | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<BookingProvider | null>(null);
@@ -26,8 +31,11 @@ export default function FrontDeskBooking() {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [searchQuery, setSearchQuery] = useState("");
   const [providers, setProviders] = useState<BookingProvider[]>([]);
+  const [allProviders, setAllProviders] = useState<BookingProvider[]>([]);
   const [services, setServices] = useState<AdminServiceRow[]>([]);
+  const [allServices, setAllServices] = useState<AdminServiceRow[]>([]);
   const [patients, setPatients] = useState<UserDto[]>([]);
+  const [sites, setSites] = useState<Array<{ siteId: number; name: string }>>([]);
   const [siteId, setSiteId] = useState<number | null>(null);
   const [availableSlots, setAvailableSlots] = useState<SlotDto[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -38,6 +46,13 @@ export default function FrontDeskBooking() {
   const [reviewServiceName, setReviewServiceName] = useState<string | null>(null);
   const [reviewSiteName, setReviewSiteName] = useState<string | null>(null);
   const [chargeSummary, setChargeSummary] = useState<string | null>(null);
+
+  const prefillWaitId = Number(searchParams.get("waitId") ?? "");
+  const prefillPatientId = Number(searchParams.get("patientId") ?? "");
+  const prefillProviderId = Number(searchParams.get("providerId") ?? "");
+  const prefillServiceId = Number(searchParams.get("serviceId") ?? "");
+  const prefillSiteId = Number(searchParams.get("siteId") ?? "");
+  const prefillDate = searchParams.get("date") ?? "";
 
   useEffect(() => {
     let cancelled = false;
@@ -58,9 +73,21 @@ export default function FrontDeskBooking() {
             specialty: p.specialty?.trim() || "—",
           }))
         );
+        setAllProviders(
+          provList.map((p) => ({
+            id: p.providerId,
+            name: p.name,
+            specialty: p.specialty?.trim() || "—",
+          }))
+        );
         setServices(svcList.map(mapServiceRow));
+        setAllServices(svcList.map(mapServiceRow));
         setPatients(users);
-        setSiteId(sites[0]?.siteId ?? null);
+        const activeSites = sites.filter((s) => s.status === "Active");
+        const siteOptions = activeSites.map((s) => ({ siteId: s.siteId, name: s.name }));
+
+        setSites(siteOptions);
+        setSiteId(siteOptions[0]?.siteId ?? null);
       } catch {
         if (!cancelled) setLoadError("Could not load providers or services.");
       }
@@ -73,26 +100,13 @@ export default function FrontDeskBooking() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!selectedService) return;
-      if (!selectedProvider || !selectedService || !siteId || !selectedDate) {
+      if (step !== 3 || !selectedProvider || !selectedService || !siteId || !selectedDate) {
         setAvailableSlots([]);
+        return;
       }
-      try {
-        // Narrow providers using backend mapping endpoint when service is chosen.
-        const mapped = await fetchProvidersByService(selectedService.id);
-        if (!cancelled && mapped.length) {
-          const mappedIds = new Set(mapped.map((m) => m.providerId));
-          setProviders((prev) => prev.filter((p) => mappedIds.has(p.id)));
-          if (selectedProvider && !mappedIds.has(selectedProvider.id)) {
-            setSelectedProvider(null);
-          }
-        }
-      } catch {
-        // keep prior provider list
-      }
-      if (!selectedProvider || !siteId || !selectedDate) return;
       try {
         setLoadingSlots(true);
+        setLoadError(null);
         const slots = await searchOpenSlots({
           providerId: selectedProvider.id,
           serviceId: selectedService.id,
@@ -102,8 +116,14 @@ export default function FrontDeskBooking() {
         if (!cancelled) {
           setAvailableSlots(slots.filter((s) => s.status.toLowerCase() === "open"));
         }
-      } catch {
-        if (!cancelled) setAvailableSlots([]);
+      } catch (error) {
+        if (!cancelled) {
+          setAvailableSlots([]);
+          const msg = isAxiosError<{ message?: string }>(error)
+            ? error.response?.data?.message
+            : undefined;
+          setLoadError(msg ?? "Could not fetch slots for selected provider/service/site/date.");
+        }
       } finally {
         if (!cancelled) setLoadingSlots(false);
       }
@@ -111,7 +131,91 @@ export default function FrontDeskBooking() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProvider, selectedService, siteId, selectedDate]);
+  }, [step, selectedProvider, selectedService, siteId, selectedDate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!selectedProvider) {
+        setProviders(allProviders);
+        setServices(allServices);
+        setSelectedService(null);
+        setSelectedSlot(null);
+        return;
+      }
+      try {
+        const mapped = await fetchServicesByProvider(selectedProvider.id);
+        if (cancelled) return;
+        const serviceIds = new Set(
+          mapped
+            .filter((m) => (m.status ?? "").toLowerCase() !== "inactive")
+            .map((m) => m.serviceId)
+        );
+        const filtered = allServices.filter((s) => serviceIds.has(s.id));
+        setServices(filtered);
+        if (!filtered.some((s) => s.id === selectedService?.id)) {
+          setSelectedService(null);
+          setSelectedSlot(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setServices([]);
+          setSelectedService(null);
+          setSelectedSlot(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider, allProviders, allServices, selectedService?.id]);
+
+  useEffect(() => {
+    if (waitlistPrefillAppliedRef.current) return;
+    if (searchParams.get("fromWaitlist") !== "1") return;
+    if (patients.length === 0 || allProviders.length === 0 || allServices.length === 0 || sites.length === 0) return;
+
+    waitlistPrefillAppliedRef.current = true;
+    const prefillPatient = patients.find((p) => p.userId === prefillPatientId) ?? null;
+    if (prefillPatient) {
+      setSelectedPatient(prefillPatient);
+      setSearchQuery(prefillPatient.name);
+      setManualPatientId(null);
+    } else if (Number.isInteger(prefillPatientId) && prefillPatientId > 0) {
+      setSelectedPatient(null);
+      setManualPatientId(prefillPatientId);
+      setSearchQuery(String(prefillPatientId));
+    }
+
+    if (Number.isInteger(prefillProviderId) && prefillProviderId > 0) {
+      const prefillProvider = allProviders.find((p) => p.id === prefillProviderId) ?? null;
+      setSelectedProvider(prefillProvider);
+    }
+    if (Number.isInteger(prefillServiceId) && prefillServiceId > 0) {
+      const prefillService = allServices.find((s) => s.id === prefillServiceId) ?? null;
+      setSelectedService(prefillService);
+    }
+    if (Number.isInteger(prefillSiteId) && prefillSiteId > 0 && sites.some((s) => s.siteId === prefillSiteId)) {
+      setSiteId(prefillSiteId);
+    }
+    if (prefillDate) {
+      setSelectedDate(prefillDate);
+    }
+
+    setStep(3);
+    setSubmitMessage("Waitlist details loaded. Continue booking by selecting an open slot.");
+  }, [
+    searchParams,
+    patients,
+    allProviders,
+    allServices,
+    sites,
+    prefillPatientId,
+    prefillProviderId,
+    prefillServiceId,
+    prefillSiteId,
+    prefillDate,
+  ]);
 
   const filteredPatients = patients.filter((p) =>
     !searchQuery.trim()
@@ -120,7 +224,7 @@ export default function FrontDeskBooking() {
   );
 
   const canContinueStep1 = selectedPatient != null || manualPatientId != null;
-  const canContinueStep2 = selectedProvider != null && selectedService != null;
+  const canContinueStep2 = selectedProvider != null && selectedService != null && siteId != null;
   const canConfirm = selectedPatient != null && selectedSlot != null;
 
   const handleContinue = async () => {
@@ -130,6 +234,7 @@ export default function FrontDeskBooking() {
       return;
     }
     if (step === 2 && canContinueStep2) {
+      setSelectedSlot(null);
       setStep(3);
       return;
     }
@@ -158,10 +263,42 @@ export default function FrontDeskBooking() {
             setChargeSummary("Appointment booked, but charge creation failed.");
           }
         }
-        setSubmitMessage("Appointment booked successfully.");
-      } catch {
-        setSubmitMessage("Booking failed. Please verify selected patient/slot and retry.");
+        if (Number.isInteger(prefillWaitId) && prefillWaitId > 0) {
+          await fillWaitlist(prefillWaitId, "FrontDesk");
+        }
+        setSubmitMessage("Appointment booked successfully. Redirecting to dashboard...");
+        setTimeout(() => navigate("/frontdesk"), 700);
+      } catch (error) {
+        const msg = isAxiosError<{ message?: string }>(error)
+          ? error.response?.data?.message
+          : undefined;
+        setSubmitMessage(msg ?? "Booking failed. Please verify selected patient/slot and retry.");
       }
+    }
+  };
+
+  const handleAddToWaitlist = async () => {
+    const patientId = selectedPatient?.userId ?? manualPatientId;
+    if (!patientId || !siteId || !selectedProvider || !selectedService || !selectedDate) {
+      setSubmitMessage("Select patient, provider, service, site, and date before adding to waitlist.");
+      return;
+    }
+
+    try {
+      await createWaitlist({
+        siteId,
+        providerId: selectedProvider.id,
+        serviceId: selectedService.id,
+        patientId,
+        priority: "Normal",
+        requestedDate: selectedDate,
+      });
+      setTimeout(() => navigate("/frontdesk/waitlist"), 700);
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error)
+        ? error.response?.data?.message
+        : undefined;
+      setSubmitMessage(msg ?? "Could not add patient to waitlist.");
     }
   };
 
@@ -258,20 +395,7 @@ export default function FrontDeskBooking() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Selected Patient</label>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedPatient
-                      ? `${selectedPatient.name} (ID: ${selectedPatient.userId})`
-                      : manualPatientId
-                        ? `Patient ID: ${manualPatientId}`
-                        : "Not selected"}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Booking Channel</label>
-                  <p className="text-sm text-muted-foreground">FrontDesk</p>
-                </div>
+                <p className="text-sm text-muted-foreground">Booking Channel: FrontDesk</p>
               </div>
             </div>
           </div>
@@ -281,12 +405,39 @@ export default function FrontDeskBooking() {
         {step === 2 && (
           <div className="space-y-5">
             <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
+              <h3 className="text-base font-medium text-foreground mb-4">Select Site</h3>
+              <div className="mb-5">
+                <select
+                  value={siteId ?? ""}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    setSiteId(Number.isFinite(value) && value > 0 ? value : null);
+                    setSelectedSlot(null);
+                    setSubmitMessage(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+                >
+                  <option value="">Select Site</option>
+                  {sites.map((site) => (
+                    <option key={site.siteId} value={site.siteId}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
               <h3 className="text-base font-medium text-foreground mb-4">Select Provider</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {providers.map((provider) => (
                   <button
                     key={provider.id}
-                    onClick={() => setSelectedProvider(provider)}
+                    onClick={() => {
+                      setSelectedProvider(provider);
+                      setSelectedService(null);
+                      setSelectedSlot(null);
+                      setSubmitMessage(null);
+                    }}
                     className={`p-4 rounded-xl border-2 transition-all text-left ${
                       selectedProvider?.id === provider.id
                         ? "border-primary bg-primary/5"
@@ -313,7 +464,11 @@ export default function FrontDeskBooking() {
                 {services.map((service) => (
                   <button
                     key={service.id}
-                    onClick={() => setSelectedService(service)}
+                    onClick={() => {
+                      setSelectedService(service);
+                      setSelectedSlot(null);
+                      setSubmitMessage(null);
+                    }}
                     className={`p-4 rounded-xl border-2 transition-all text-left ${
                       selectedService?.id === service.id
                         ? "border-primary bg-primary/5"
@@ -321,14 +476,11 @@ export default function FrontDeskBooking() {
                     }`}
                   >
                     <p className="text-sm font-medium text-foreground">{service.name}</p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs px-2 py-1 rounded-md bg-[#95d4a8]/20 text-foreground">
-                        {service.duration} min
-                      </span>
-                      <span className="text-xs text-muted-foreground">• {service.visitType}</span>
-                    </div>
                   </button>
                 ))}
+                {services.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No active services mapped to selected provider.</p>
+                )}
               </div>
             </div>
           </div>
@@ -347,6 +499,7 @@ export default function FrontDeskBooking() {
               <input
                 type="date"
                 value={selectedDate}
+                min={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => {
                   setSelectedDate(e.target.value);
                   setSelectedSlot(null);
@@ -380,19 +533,7 @@ export default function FrontDeskBooking() {
               )}
               {!loadingSlots && availableSlots.length === 0 && selectedProvider && selectedService && (
                 <button
-                  onClick={async () => {
-                    const patientId = selectedPatient?.userId ?? manualPatientId;
-                    if (!patientId || !siteId) return;
-                    await createWaitlist({
-                      siteId,
-                      providerId: selectedProvider.id,
-                      serviceId: selectedService.id,
-                      patientId,
-                      priority: "Normal",
-                      requestedDate: selectedDate,
-                    });
-                    setSubmitMessage("Added patient to waitlist.");
-                  }}
+                  onClick={handleAddToWaitlist}
                   className="mt-3 px-3 py-2 text-sm rounded border border-border hover:bg-secondary"
                 >
                   Add to Waitlist

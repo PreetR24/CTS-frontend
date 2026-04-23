@@ -1,15 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, X, Calendar, AlertCircle } from "lucide-react";
-import {
-  approveLeave,
-  getLeaveImpacts,
-  getLeaveRequestById,
-  rejectLeave,
-  searchLeaveRequests,
-  type LeaveRequestDto,
-} from "../../../api/operationsApi";
+import { isAxiosError } from "axios";
+import { approveLeave, rejectLeave, searchLeaveRequests, type LeaveRequestDto } from "../../../api/operationsApi";
 import { fetchUsers, type UserDto } from "../../../api/usersApi";
-import { getLeaveImpactById, resolveLeaveImpact, searchLeaveImpactsByLeaveId } from "../../../api/operationsPlanningApi";
+import { resolveLeaveImpact, searchLeaveImpactsByLeaveId } from "../../../api/operationsPlanningApi";
 import { meApi } from "../../../api/authApi";
 
 export default function OperationsLeave() {
@@ -18,6 +12,19 @@ export default function OperationsLeave() {
   const [impactCountByLeave, setImpactCountByLeave] = useState<Map<number, number>>(new Map());
   const [impactIdsByLeave, setImpactIdsByLeave] = useState<Map<number, number[]>>(new Map());
   const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [detailLeave, setDetailLeave] = useState<LeaveRequestDto | null>(null);
+  const [detailImpacts, setDetailImpacts] = useState<
+    Array<{ impactId: number; impactType: string; status: string; resolvedDate: string | null }>
+  >([]);
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [nurseFilter, setNurseFilter] = useState("");
+
+  const getErrorMessage = (err: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(err)) return err.response?.data?.message ?? fallback;
+    if (err instanceof Error) return err.message;
+    return fallback;
+  };
 
   const refresh = async () => {
     const list = await searchLeaveRequests();
@@ -59,13 +66,22 @@ export default function OperationsLeave() {
 
   const viewRows = leaveRequests.map((l) => ({
     id: l.leaveId,
-    staff: userNames.get(l.userId) ?? "Team Member",
+    nurse: userNames.get(l.userId) ?? "Nurse",
     type: l.leaveType,
     startDate: l.startDate,
     endDate: l.endDate,
     status: l.status,
     impactedAppts: impactCountByLeave.get(l.leaveId) ?? 0,
   }));
+  const filteredRows = useMemo(
+    () =>
+      viewRows.filter((row) => {
+        const statusPass = statusFilter === "All" || row.status === statusFilter;
+        const nursePass = !nurseFilter || row.nurse.toLowerCase().includes(nurseFilter.toLowerCase());
+        return statusPass && nursePass;
+      }),
+    [viewRows, statusFilter, nurseFilter]
+  );
 
   const getStatusColor = (status: string) => {
     switch(status) {
@@ -80,8 +96,9 @@ export default function OperationsLeave() {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Leave Management</h1>
-        <p className="text-sm text-muted-foreground mt-1">Review and approve staff leave requests</p>
+        <p className="text-sm text-muted-foreground mt-1">Review and approve nurse leave requests</p>
         {notice && <p className="text-sm text-primary mt-2">{notice}</p>}
+        {error && <p className="text-sm text-destructive mt-2">{error}</p>}
       </div>
 
       {/* Summary Cards */}
@@ -114,6 +131,31 @@ export default function OperationsLeave() {
           </p>
         </div>
       </div>
+      <div className="bg-card rounded-xl border border-border p-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+          >
+            <option>All</option>
+            <option>Pending</option>
+            <option>Approved</option>
+            <option>Rejected</option>
+            <option>Cancelled</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">Staff Name</label>
+          <input
+            value={nurseFilter}
+            onChange={(e) => setNurseFilter(e.target.value)}
+            placeholder="Search by name"
+            className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+          />
+        </div>
+      </div>
 
       {/* Leave Requests List */}
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -123,20 +165,20 @@ export default function OperationsLeave() {
         </div>
 
         <div className="divide-y divide-border">
-          {viewRows.map((leave) => {
+          {filteredRows.map((leave) => {
             const colors = getStatusColor(leave.status);
             return (
               <div key={leave.id} className="p-5 hover:bg-secondary/20 transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4 flex-1">
-                    {/* Staff Info */}
+                    {/* Nurse Info */}
                     <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#6b9bd1] to-[#5a8bc1] flex items-center justify-center flex-shrink-0">
                       <Calendar className="w-6 h-6 text-white" />
                     </div>
 
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <p className="text-base font-medium text-foreground">{leave.staff}</p>
+                        <p className="text-base font-medium text-foreground">{leave.nurse}</p>
                         <span className={`px-2.5 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
                           {leave.status}
                         </span>
@@ -176,11 +218,22 @@ export default function OperationsLeave() {
                         <button
                           className="px-2 py-1 rounded border border-border text-xs"
                           onClick={async () => {
-                            const detail = await getLeaveRequestById(leave.id);
-                            const impacts = await getLeaveImpacts(leave.id);
-                            setNotice(
-                              `Leave ${detail.leaveType} (${detail.status}) ${detail.startDate} to ${detail.endDate}, impacts: ${impacts.length}`
-                            );
+                            try {
+                              setError(null);
+                              const detail = leaveRequests.find((x) => x.leaveId === leave.id) ?? null;
+                              const impacts = await searchLeaveImpactsByLeaveId(leave.id);
+                              setDetailLeave(detail);
+                              setDetailImpacts(
+                                impacts.map((x) => ({
+                                  impactId: x.impactId,
+                                  impactType: x.impactType,
+                                  status: x.status,
+                                  resolvedDate: x.resolvedDate,
+                                }))
+                              );
+                            } catch (e) {
+                              setError(getErrorMessage(e, "Could not load leave details."));
+                            }
                           }}
                         >
                           View Detail
@@ -189,12 +242,21 @@ export default function OperationsLeave() {
                           <button
                             className="px-2 py-1 rounded border border-border text-xs"
                             onClick={async () => {
-                              const impactId = impactIdsByLeave.get(leave.id)?.[0];
-                              if (!impactId) return;
-                              const detail = await getLeaveImpactById(impactId);
-                              setNotice(
-                                `Impact ${detail.impactType} (${detail.status}), resolved: ${detail.resolvedDate ?? "No"}`
-                              );
+                              try {
+                                setError(null);
+                                const impacts = await searchLeaveImpactsByLeaveId(leave.id);
+                                setDetailLeave(leaveRequests.find((x) => x.leaveId === leave.id) ?? null);
+                                setDetailImpacts(
+                                  impacts.map((x) => ({
+                                    impactId: x.impactId,
+                                    impactType: x.impactType,
+                                    status: x.status,
+                                    resolvedDate: x.resolvedDate,
+                                  }))
+                                );
+                              } catch (e) {
+                                setError(getErrorMessage(e, "Could not load impact details."));
+                              }
                             }}
                           >
                             Impact Detail
@@ -209,11 +271,22 @@ export default function OperationsLeave() {
                     <div className="flex gap-2">
                       <button
                         onClick={async () => {
-                          await approveLeave(leave.id);
-                          const me = await meApi();
-                          const impacts = impactIdsByLeave.get(leave.id) ?? [];
-                          await Promise.all(impacts.map((impactId) => resolveLeaveImpact(impactId, me.userId)));
-                          await refresh();
+                          try {
+                            setError(null);
+                            const impacts = await searchLeaveImpactsByLeaveId(leave.id);
+                            const unresolved = impacts.filter((x) => x.status.toLowerCase() !== "resolved");
+                            if (unresolved.length > 0) {
+                              setError(
+                                "You can approve leave only after all impacts are resolved."
+                              );
+                              return;
+                            }
+                            await approveLeave(leave.id);
+                            await refresh();
+                            setNotice("Leave request approved.");
+                          } catch (e) {
+                            setError(getErrorMessage(e, "Could not approve leave request."));
+                          }
                         }}
                         className="px-4 py-2 rounded-lg bg-[#95d4a8] text-white text-sm font-medium hover:shadow-md transition-all flex items-center gap-2"
                       >
@@ -222,11 +295,17 @@ export default function OperationsLeave() {
                       </button>
                       <button
                         onClick={async () => {
-                          await rejectLeave(leave.id);
-                          const me = await meApi();
-                          const impacts = impactIdsByLeave.get(leave.id) ?? [];
-                          await Promise.all(impacts.map((impactId) => resolveLeaveImpact(impactId, me.userId)));
-                          await refresh();
+                          try {
+                            setError(null);
+                            await rejectLeave(leave.id);
+                            const me = await meApi();
+                            const impacts = impactIdsByLeave.get(leave.id) ?? [];
+                            await Promise.all(impacts.map((impactId) => resolveLeaveImpact(impactId, me.userId)));
+                            await refresh();
+                            setNotice("Leave request rejected.");
+                          } catch (e) {
+                            setError(getErrorMessage(e, "Could not reject leave request."));
+                          }
                         }}
                         className="px-4 py-2 rounded-lg bg-[#e8a0a0] text-white text-sm font-medium hover:shadow-md transition-all flex items-center gap-2"
                       >
@@ -239,8 +318,72 @@ export default function OperationsLeave() {
               </div>
             );
           })}
+          {filteredRows.length === 0 && (
+            <div className="p-5 text-sm text-muted-foreground">No leave requests found for selected filters.</div>
+          )}
         </div>
       </div>
+      {detailLeave && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-2xl shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-3">Leave Details</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              {detailLeave.leaveType} ({detailLeave.status}) - {detailLeave.startDate} to {detailLeave.endDate}
+            </p>
+            <div className="space-y-2 max-h-64 overflow-auto">
+              {detailImpacts.length === 0 && (
+                <p className="text-sm text-muted-foreground">No impacts found for this leave request.</p>
+              )}
+              {detailImpacts.map((impact) => (
+                <div key={impact.impactId} className="border border-border rounded-lg p-3">
+                  <p className="text-sm font-medium text-foreground">Impact #{impact.impactId}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {impact.impactType} - {impact.status} - Resolved: {impact.resolvedDate ?? "No"}
+                  </p>
+                  {impact.status.toLowerCase() !== "resolved" && (
+                    <button
+                      className="mt-2 px-3 py-1 rounded border border-border text-xs hover:bg-secondary"
+                      onClick={async () => {
+                        try {
+                          setError(null);
+                          const me = await meApi();
+                          await resolveLeaveImpact(impact.impactId, me.userId);
+                          const impacts = await searchLeaveImpactsByLeaveId(detailLeave.leaveId);
+                          setDetailImpacts(
+                            impacts.map((x) => ({
+                              impactId: x.impactId,
+                              impactType: x.impactType,
+                              status: x.status,
+                              resolvedDate: x.resolvedDate,
+                            }))
+                          );
+                          await refresh();
+                          setNotice(`Impact #${impact.impactId} resolved.`);
+                        } catch (e) {
+                          setError(getErrorMessage(e, "Could not resolve impact."));
+                        }
+                      }}
+                    >
+                      Mark Resolved
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => {
+                  setDetailLeave(null);
+                  setDetailImpacts([]);
+                }}
+                className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

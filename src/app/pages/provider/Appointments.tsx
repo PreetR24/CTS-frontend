@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Calendar, Clock, MapPin } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import {
   getAppointmentById,
   markAppointmentCompleted,
-  markAppointmentNoShow,
   searchAppointments,
   type AppointmentDto,
 } from "../../../api/appointmentsApi";
-import { createOutcome, markOutcomeNoShow } from "../../../api/outcomesApi";
+import { createOutcome, getOutcomeByAppointment, type OutcomeDto } from "../../../api/outcomesApi";
 import { meApi } from "../../../api/authApi";
 
 type AppointmentRow = {
@@ -29,12 +30,28 @@ function to12Hour(time24: string): string {
 }
 
 export default function ProviderAppointments() {
+  const canComplete = (status: string) => {
+    const normalized = status.trim().toLowerCase();
+    return normalized === "booked" || normalized === "checkedin";
+  };
+  const canAddOutcome = (status: string) => status.trim().toLowerCase() === "completed";
+
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
+  const [outcomesByAppointmentId, setOutcomesByAppointmentId] = useState<Record<number, OutcomeDto>>({});
   const [providerId, setProviderId] = useState<number | null>(null);
   const [selectedDetails, setSelectedDetails] = useState<AppointmentDto | null>(null);
   const [outcomeAppointmentId, setOutcomeAppointmentId] = useState<number | null>(null);
-  const [clinicalNotesInput, setClinicalNotesInput] = useState("");
-  const [treatmentPlanInput, setTreatmentPlanInput] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<{ clinicalNotes: string; treatmentPlan: string }>({
+    defaultValues: { clinicalNotes: "", treatmentPlan: "" },
+  });
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -54,9 +71,24 @@ export default function ProviderAppointments() {
         const list = await searchAppointments({ providerId: pid });
         if (cancelled) return;
         setAppointments(list);
+        const completedAppointments = list.filter((a) => a.status.trim().toLowerCase() === "completed");
+        const loadedOutcomes = await Promise.all(
+          completedAppointments.map(async (appointment) => {
+            const outcome = await getOutcomeByAppointment(appointment.appointmentId);
+            return outcome ? ([appointment.appointmentId, outcome] as const) : null;
+          })
+        );
+        if (cancelled) return;
+        const outcomeMap: Record<number, OutcomeDto> = {};
+        loadedOutcomes.forEach((entry) => {
+          if (!entry) return;
+          outcomeMap[entry[0]] = entry[1];
+        });
+        setOutcomesByAppointmentId(outcomeMap);
       } catch {
         if (!cancelled) {
           setAppointments([]);
+          setOutcomesByAppointmentId({});
           setProviderId(null);
         }
       }
@@ -77,44 +109,72 @@ export default function ProviderAppointments() {
   }));
 
   const openAppointmentDetails = async (appointmentId: number) => {
-    const details = await getAppointmentById(appointmentId);
-    setSelectedDetails(details);
-  };
-
-  const markCompleted = async (appointmentId: number) => {
-    await markAppointmentCompleted(appointmentId);
-    if (providerId != null) {
-      const refreshed = await searchAppointments({ providerId });
-      setAppointments(refreshed);
+    try {
+      setActionError(null);
+      const details = await getAppointmentById(appointmentId);
+      setSelectedDetails(details);
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not load appointment details."));
     }
   };
 
   const openOutcomeModal = (appointmentId: number) => {
+    const current = appointments.find((a) => a.appointmentId === appointmentId);
+    if (!current || !canAddOutcome(current.status)) {
+      setActionError("Add outcome is allowed only after appointment is marked Completed.");
+      return;
+    }
     setOutcomeAppointmentId(appointmentId);
-    setClinicalNotesInput("");
-    setTreatmentPlanInput("");
+    reset({ clinicalNotes: "", treatmentPlan: "" });
   };
 
-  const markNoShow = async (appointmentId: number) => {
-    await markAppointmentNoShow(appointmentId);
-    await markOutcomeNoShow(appointmentId, { reason: "Marked by provider" });
-    if (providerId != null) {
-      const refreshed = await searchAppointments({ providerId });
-      setAppointments(refreshed);
+  const markCompleted = async (appointmentId: number) => {
+    const current = appointments.find((a) => a.appointmentId === appointmentId);
+    if (!current || !canComplete(current.status)) {
+      setActionError("Only Booked or CheckedIn appointments can be completed.");
+      return;
+    }
+    try {
+      setActionError(null);
+      await markAppointmentCompleted(appointmentId);
+      if (providerId != null) {
+        const refreshed = await searchAppointments({ providerId });
+        setAppointments(refreshed);
+      }
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not complete appointment."));
     }
   };
 
   const closeDetailsModal = () => setSelectedDetails(null);
   const closeOutcomeModal = () => setOutcomeAppointmentId(null);
 
-  const saveOutcomeFromModal = async () => {
+  const saveOutcomeFromModal = async (values: { clinicalNotes: string; treatmentPlan: string }) => {
     if (outcomeAppointmentId == null) return;
-    if (!clinicalNotesInput.trim() && !treatmentPlanInput.trim()) return;
-    await createOutcome(outcomeAppointmentId, {
-      clinicalNotes: clinicalNotesInput.trim() || undefined,
-      treatmentPlan: treatmentPlanInput.trim() || undefined,
-    });
-    setOutcomeAppointmentId(null);
+    if (!values.clinicalNotes.trim() && !values.treatmentPlan.trim()) {
+      setActionError("Add clinical notes or treatment plan.");
+      return;
+    }
+    try {
+      setActionError(null);
+      const notes = [values.clinicalNotes.trim(), values.treatmentPlan.trim()].filter(Boolean).join(" | ");
+      await createOutcome(outcomeAppointmentId, {
+        outcome: "Completed",
+        notes: notes || undefined,
+        markedBy: providerId ?? undefined,
+      });
+      const savedOutcome = await getOutcomeByAppointment(outcomeAppointmentId);
+      if (savedOutcome) {
+        setOutcomesByAppointmentId((prev) => ({ ...prev, [outcomeAppointmentId]: savedOutcome }));
+      }
+      setOutcomeAppointmentId(null);
+      if (providerId != null) {
+        const refreshed = await searchAppointments({ providerId });
+        setAppointments(refreshed);
+      }
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not save outcome."));
+    }
   };
 
   return (
@@ -122,6 +182,7 @@ export default function ProviderAppointments() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">My Appointments</h1>
         <p className="text-sm text-muted-foreground mt-1">All your scheduled consultations</p>
+        {actionError && <p className="text-sm text-destructive mt-1">{actionError}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -134,7 +195,7 @@ export default function ProviderAppointments() {
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Date & Time</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Site</th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Status</th>
-                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Actions</th>
+                <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Details & Outcome</th>
               </tr>
             </thead>
             <tbody>
@@ -172,15 +233,15 @@ export default function ProviderAppointments() {
                     >
                       View Details
                     </button>
-                    {(apt.status === "Booked" || apt.status === "CheckedIn") && (
+                    {canComplete(apt.status) && (
                       <button
                         onClick={() => void markCompleted(apt.id)}
                         className="ml-2 px-3 py-1.5 rounded-lg bg-[#95d4a8] text-white text-xs"
                       >
-                        Complete
+                        Mark Completed
                       </button>
                     )}
-                    {(apt.status === "Booked" || apt.status === "CheckedIn") && (
+                    {canAddOutcome(apt.status) && !outcomesByAppointmentId[apt.id] && (
                       <button
                         onClick={() => openOutcomeModal(apt.id)}
                         className="ml-2 px-3 py-1.5 rounded-lg border border-border text-xs"
@@ -188,13 +249,11 @@ export default function ProviderAppointments() {
                         Add Outcome
                       </button>
                     )}
-                    {apt.status === "Booked" && (
-                      <button
-                        onClick={() => void markNoShow(apt.id)}
-                        className="ml-2 px-3 py-1.5 rounded-lg border border-border text-xs"
-                      >
-                        No-Show
-                      </button>
+                    {outcomesByAppointmentId[apt.id] && (
+                      <span className="ml-2 inline-flex px-2.5 py-1 rounded-md text-xs bg-[#a9d4b8]/30 text-foreground">
+                        Outcome: {outcomesByAppointmentId[apt.id].outcome}
+                        {outcomesByAppointmentId[apt.id].notes ? ` - ${outcomesByAppointmentId[apt.id].notes}` : ""}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -243,37 +302,45 @@ export default function ProviderAppointments() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg shadow-xl">
             <h3 className="text-base font-medium text-foreground mb-4">Add Outcome</h3>
-            <div className="space-y-3">
+            <form className="space-y-3" onSubmit={handleSubmit(saveOutcomeFromModal)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Clinical Notes</label>
                 <textarea
                   rows={3}
-                  value={clinicalNotesInput}
-                  onChange={(e) => setClinicalNotesInput(e.target.value)}
+                  {...register("clinicalNotes", {
+                    maxLength: { value: 2000, message: "Clinical notes can be up to 2000 characters." },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {errors.clinicalNotes && <p className="text-xs text-destructive mt-1">{errors.clinicalNotes.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Treatment Plan</label>
                 <textarea
                   rows={3}
-                  value={treatmentPlanInput}
-                  onChange={(e) => setTreatmentPlanInput(e.target.value)}
+                  {...register("treatmentPlan", {
+                    maxLength: { value: 2000, message: "Treatment plan can be up to 2000 characters." },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {errors.treatmentPlan && <p className="text-xs text-destructive mt-1">{errors.treatmentPlan.message}</p>}
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeOutcomeModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
-              >
-                Cancel
-              </button>
-              <button onClick={() => void saveOutcomeFromModal()} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90">
-                Save Outcome
-              </button>
-            </div>
+              {(errors.clinicalNotes || errors.treatmentPlan) && (
+                <p className="text-xs text-destructive">Please correct form errors.</p>
+              )}
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeOutcomeModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90">
+                  Save Outcome
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -140,6 +140,7 @@ Module files
 - frontend/src/app/pages/frontdesk/Waitlist.tsx
 - frontend/src/app/pages/frontdesk/Search.tsx
 - frontend/src/app/pages/frontdesk/Dashboard.tsx
+- frontend/src/app/pages/frontdesk/Schedule.tsx
 - frontend/src/app/pages/FrontDeskDashboard.tsx
 - frontend/src/app/pages/staff/Dashboard.tsx
 - frontend/src/app/pages/staff/Schedule.tsx
@@ -215,6 +216,8 @@ Root/docs allocation
 - frontend/.env.example
 - frontend/index.html
 - frontend/vite.config.ts
+- frontend/BACKEND_SQLSERVER_DUMMY_DATA_SEED.txt
+- frontend/PROJECT_E2E_TEST_FLOW.txt
 
 Initial build output (only if you want dist in empty repo)
 - frontend/dist/index.html

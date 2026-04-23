@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit, User } from "lucide-react";
+import { isAxiosError } from "axios";
+import { useForm } from "react-hook-form";
 import { mapUserRows, type AdminUserRow } from "../../../api/adminViewMappers";
 import {
   activateUser,
@@ -18,15 +20,26 @@ export default function AdminUsers() {
   const [filterStatus, setFilterStatus] = useState("Active");
   const [rows, setRows] = useState<AdminUserRow[]>([]);
   const [editUserId, setEditUserId] = useState<number | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editEmail, setEditEmail] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newRole, setNewRole] = useState("Provider");
-  const [newEmail, setNewEmail] = useState("");
-  const [newPhone, setNewPhone] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    reset: resetCreateForm,
+    watch: watchCreateForm,
+    formState: { errors: createErrors },
+  } = useForm<{ name: string; role: string; email: string; phone: string; specialty: string; credentials: string }>({
+    defaultValues: { name: "", role: "Provider", email: "", phone: "", specialty: "", credentials: "" },
+  });
+  const {
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEditForm,
+    formState: { errors: editErrors },
+  } = useForm<{ name: string; email: string; phone: string }>({
+    defaultValues: { name: "", email: "", phone: "" },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -72,70 +85,109 @@ export default function AdminUsers() {
 
   const openCreateModal = () => setShowModal(true);
 
-  const closeCreateModal = () => setShowModal(false);
+  const closeCreateModal = () => {
+    setShowModal(false);
+    resetCreateForm({ name: "", role: "Provider", email: "", phone: "", specialty: "", credentials: "" });
+  };
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
 
   const openEditModal = async (userId: number) => {
-    const detail = await getUserById(userId);
-    setEditUserId(userId);
-    setEditName(detail.name);
-    setEditEmail(detail.email);
-    setEditPhone(detail.phone ?? "");
-    setShowEditModal(true);
+    try {
+      setActionError(null);
+      const detail = await getUserById(userId);
+      setEditUserId(userId);
+      resetEditForm({ name: detail.name, email: detail.email, phone: detail.phone ?? "" });
+      setShowEditModal(true);
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not load user details."));
+    }
   };
 
   const deactivateUserRow = async (userId: number) => {
-    await deactivateUser(userId);
-    setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, status: "Inactive" } : r)));
+    try {
+      setActionError(null);
+      await deactivateUser(userId);
+      setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, status: "Inactive" } : r)));
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not deactivate user."));
+    }
   };
 
   const activateUserRow = async (userId: number) => {
-    await activateUser(userId);
-    setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, status: "Active" } : r)));
+    try {
+      setActionError(null);
+      await activateUser(userId);
+      setRows((prev) => prev.map((r) => (r.id === userId ? { ...r, status: "Active" } : r)));
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not activate user."));
+    }
   };
 
-  const createUserFromModal = async () => {
-    if (!newName || !newRole || !newEmail) return;
-    const created = await createUser({ name: newName, role: newRole, email: newEmail, phone: newPhone || undefined });
-    setRows((prev) => [
-      ...prev,
-      {
-        id: created.userId,
-        name: created.name,
-        role: created.role,
-        email: created.email,
-        phone: created.phone ?? "-",
-        status: created.status,
-      },
-    ]);
-    setNewName("");
-    setNewRole("Provider");
-    setNewEmail("");
-    setNewPhone("");
-    setShowModal(false);
+  const createUserFromModal = async (values: { name: string; role: string; email: string; phone: string; specialty: string; credentials: string }) => {
+    try {
+      setActionError(null);
+      const created = await createUser({
+        name: values.name.trim(),
+        role: values.role,
+        email: values.email.trim(),
+        phone: values.phone.trim() || undefined,
+        specialty: values.role === "Provider" ? values.specialty.trim() || undefined : undefined,
+        credentials: values.role === "Provider" ? values.credentials.trim() || undefined : undefined,
+      });
+      setRows((prev) => [
+        ...prev,
+        {
+          id: created.userId,
+          name: created.name,
+          role: created.role,
+          email: created.email,
+          phone: created.phone ?? "-",
+          status: created.status,
+        },
+      ]);
+      closeCreateModal();
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not create user."));
+    }
   };
+  const createRole = watchCreateForm("role");
 
-  const closeEditModal = () => setShowEditModal(false);
-
-  const saveEditedUser = async () => {
-    if (editUserId == null || !editName.trim()) return;
-    const updated = await updateUser(editUserId, {
-      name: editName.trim(),
-      email: editEmail.trim(),
-      phone: editPhone.trim() || undefined,
-    });
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === editUserId
-          ? {
-              ...r,
-              name: updated.name,
-              email: updated.email,
-              phone: updated.phone ?? "-",
-            }
-          : r
-      )
-    );
+  const closeEditModal = () => {
     setShowEditModal(false);
+    setEditUserId(null);
+  };
+
+  const saveEditedUser = async (values: { name: string; email: string; phone: string }) => {
+    if (editUserId == null) return;
+    try {
+      setActionError(null);
+      const updated = await updateUser(editUserId, {
+        name: values.name.trim(),
+        email: values.email.trim(),
+        phone: values.phone.trim() || undefined,
+      });
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === editUserId
+            ? {
+                ...r,
+                name: updated.name,
+                email: updated.email,
+                phone: updated.phone ?? "-",
+              }
+            : r
+        )
+      );
+      closeEditModal();
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not update user."));
+    }
   };
 
   return (
@@ -144,6 +196,7 @@ export default function AdminUsers() {
         <h1 className="text-xl font-medium text-foreground">Users</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage all system users and role assignments</p>
         {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
+        {actionError && <p className="text-sm text-destructive mt-2">{actionError}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -276,22 +329,24 @@ export default function AdminUsers() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg">
             <h3 className="text-base font-medium text-foreground mb-4">Add New User</h3>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateSubmit(createUserFromModal)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Full Name</label>
                 <input
                   type="text"
                   placeholder="Firstname Lastname"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
+                  {...registerCreate("name", {
+                    required: "Name is required.",
+                    validate: (value) => value.trim().length > 0 || "Name cannot be empty.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.name && <p className="text-xs text-destructive mt-1">{createErrors.name.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Role</label>
                 <select
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value)}
+                  {...registerCreate("role", { required: "Role is required." })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option>Provider</option>
@@ -300,42 +355,77 @@ export default function AdminUsers() {
                   <option>Operations</option>
                   <option>Admin</option>
                 </select>
+                {createErrors.role && <p className="text-xs text-destructive mt-1">{createErrors.role.message}</p>}
               </div>
+              {createRole === "Provider" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">Specialty</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Cardiology"
+                      {...registerCreate("specialty")}
+                      className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">Credentials</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., MBBS, MD"
+                      {...registerCreate("credentials")}
+                      className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
                 <input
                   type="email"
                   placeholder="user@careschedule.in"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
+                  {...registerCreate("email", {
+                    required: "Email is required.",
+                    pattern: {
+                      value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                      message: "Enter a valid email address.",
+                    },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.email && <p className="text-xs text-destructive mt-1">{createErrors.email.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Phone</label>
                 <input
                   type="tel"
                   placeholder="+91 XXXXX XXXXX"
-                  value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
+                  {...registerCreate("phone", {
+                    pattern: {
+                      value: /^[0-9+\-\s()]*$/,
+                      message: "Phone can contain digits and + - ( ) only.",
+                    },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.phone && <p className="text-xs text-destructive mt-1">{createErrors.phone.message}</p>}
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeCreateModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void createUserFromModal()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Create User
-              </button>
-            </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Create User
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -343,41 +433,58 @@ export default function AdminUsers() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
             <h3 className="text-base font-medium text-foreground mb-4">Edit User</h3>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Name</label>
-            <input
-              type="text"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Email</label>
-            <input
-              type="email"
-              value={editEmail}
-              onChange={(e) => setEditEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Phone</label>
-            <input
-              type="text"
-              value={editPhone}
-              onChange={(e) => setEditPhone(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeEditModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void saveEditedUser()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Save
-              </button>
-            </div>
+            <form onSubmit={handleEditSubmit(saveEditedUser)}>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Name</label>
+              <input
+                type="text"
+                {...registerEdit("name", {
+                  required: "Name is required.",
+                  validate: (value) => value.trim().length > 0 || "Name cannot be empty.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.name && <p className="text-xs text-destructive mt-1">{editErrors.name.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Email</label>
+              <input
+                type="email"
+                {...registerEdit("email", {
+                  required: "Email is required.",
+                  pattern: {
+                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                    message: "Enter a valid email address.",
+                  },
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.email && <p className="text-xs text-destructive mt-1">{editErrors.email.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Phone</label>
+              <input
+                type="text"
+                {...registerEdit("phone", {
+                  pattern: {
+                    value: /^[0-9+\-\s()]*$/,
+                    message: "Phone can contain digits and + - ( ) only.",
+                  },
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.phone && <p className="text-xs text-destructive mt-1">{editErrors.phone.message}</p>}
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

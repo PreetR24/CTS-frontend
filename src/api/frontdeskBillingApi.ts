@@ -33,6 +33,7 @@ export async function createCharge(payload: {
 }
 
 export async function getChargesByAppointment(appointmentId: number): Promise<ChargeDto[]> {
-  const res = await api.get<ApiResponse<unknown>>(`/charges/appointment/${appointmentId}`);
-  return unwrapAxiosApiList<ChargeDto>(res);
+  const res = await api.get<ApiResponse<ChargeDto>>(`/charges/appointment/${appointmentId}`);
+  const single = unwrapAxiosApiData(res);
+  return single ? [single] : [];
 }

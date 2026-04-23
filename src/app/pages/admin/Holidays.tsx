@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Calendar } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import {
   activateHoliday,
   createHoliday,
   deactivateHoliday,
-  getHolidayByDate,
   getHolidayById,
   searchHolidays,
   type HolidayDto,
@@ -22,13 +23,22 @@ export default function AdminHolidays() {
   const [filterMonth, setFilterMonth] = useState("");
   const [filterStatus, setFilterStatus] = useState("Active");
   const [editHolidayId, setEditHolidayId] = useState<number | null>(null);
-  const [editDescription, setEditDescription] = useState("");
-  const [editDate, setEditDate] = useState("");
-  const [editSiteId, setEditSiteId] = useState(0);
-  const [form, setForm] = useState({
-    description: "",
-    date: "",
-    siteId: -1,
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    reset: resetCreateForm,
+    getValues: getCreateValues,
+    formState: { errors: createErrors },
+  } = useForm<{ description: string; date: string; siteId: number }>({
+    defaultValues: { description: "", date: "", siteId: -1 },
+  });
+  const {
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEditForm,
+    formState: { errors: editErrors },
+  } = useForm<{ description: string; date: string; siteId: number }>({
+    defaultValues: { description: "", date: "", siteId: 0 },
   });
 
   useEffect(() => {
@@ -42,7 +52,7 @@ export default function AdminHolidays() {
         if (cancelled) return;
         setHolidays(holidayList);
         setSites(siteList);
-        setForm((prev) => ({ ...prev, siteId: -1 }));
+        resetCreateForm({ description: "", date: "", siteId: -1 });
       } catch {
         if (!cancelled) {
           setHolidays([]);
@@ -72,27 +82,54 @@ export default function AdminHolidays() {
     [holidays, filterStatus, filterSiteId, filterMonth, sites]
   );
 
-  const handleCreate = async () => {
-    if (!form.date || !form.siteId) return;
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
+
+  const handleCreate = async (values: { description: string; date: string; siteId: number }) => {
+    if (!values.date || !values.siteId) return;
     setIsSaving(true);
     try {
-      const targetSiteIds = form.siteId === -1 ? sites.map((site) => site.siteId) : [form.siteId];
+      setNotice(null);
+      const targetSiteIds = values.siteId === -1 ? sites.map((site) => site.siteId) : [values.siteId];
+      const duplicateSiteIds = targetSiteIds.filter((siteId) =>
+        holidays.some(
+          (h) =>
+            h.siteId === siteId &&
+            h.date === values.date &&
+            h.status !== "Inactive"
+        )
+      );
+      if (duplicateSiteIds.length > 0) {
+        const duplicateNames = sites
+          .filter((s) => duplicateSiteIds.includes(s.siteId))
+          .map((s) => s.name)
+          .join(", ");
+        setNotice(
+          duplicateNames
+            ? `Holiday already exists for ${values.date} at: ${duplicateNames}.`
+            : `Holiday already exists for ${values.date} on selected site.`
+        );
+        return;
+      }
       const createdRows = await Promise.all(
         targetSiteIds.map((siteId) =>
           createHoliday({
             siteId,
-            date: form.date,
-            description: form.description || undefined,
+            date: values.date,
+            description: values.description || undefined,
           })
         )
       );
       setHolidays((prev) => [...createdRows, ...prev]);
       setShowModal(false);
-      setForm({
-        description: "",
-        date: "",
-        siteId: -1,
-      });
+      resetCreateForm({ description: "", date: "", siteId: -1 });
+    } catch (error) {
+      setNotice(getErrorMessage(error, "Could not create holiday."));
     } finally {
       setIsSaving(false);
     }
@@ -100,41 +137,62 @@ export default function AdminHolidays() {
 
   const handleDelete = async (id: number) => {
     try {
+      setNotice(null);
       await deactivateHoliday(id);
       setHolidays((prev) => prev.map((h) => (h.holidayId === id ? { ...h, status: "Inactive" } : h)));
-    } catch {
-      // preserve existing row when request fails
+    } catch (error) {
+      setNotice(getErrorMessage(error, "Could not deactivate holiday."));
     }
   };
 
   const openCreateModal = () => setShowModal(true);
-  const closeCreateModal = () => setShowModal(false);
+  const closeCreateModal = () => {
+    setShowModal(false);
+    resetCreateForm({ description: "", date: "", siteId: -1 });
+  };
 
   const startEditHoliday = async (holidayId: number) => {
-    const detail = await getHolidayById(holidayId);
-    setEditHolidayId(holidayId);
-    setEditDescription(detail.description ?? "Holiday");
-    setEditDate(detail.date);
-    setEditSiteId(detail.siteId);
+    try {
+      setNotice(null);
+      const detail = await getHolidayById(holidayId);
+      setEditHolidayId(holidayId);
+      resetEditForm({
+        description: detail.description ?? "Holiday",
+        date: detail.date,
+        siteId: detail.siteId,
+      });
+    } catch (error) {
+      setNotice(getErrorMessage(error, "Could not load holiday details."));
+    }
   };
 
   const activateHolidayRow = async (holidayId: number) => {
-    await activateHoliday(holidayId);
-    const refreshed = await searchHolidays({ page: 1, pageSize: 200 });
-    setHolidays(refreshed);
+    try {
+      setNotice(null);
+      await activateHoliday(holidayId);
+      const refreshed = await searchHolidays({ page: 1, pageSize: 200 });
+      setHolidays(refreshed);
+    } catch (error) {
+      setNotice(getErrorMessage(error, "Could not activate holiday."));
+    }
   };
 
   const closeEditHolidayModal = () => setEditHolidayId(null);
 
-  const saveEditedHoliday = async () => {
+  const saveEditedHoliday = async (values: { description: string; date: string; siteId: number }) => {
     if (editHolidayId == null) return;
-    const updated = await updateHoliday(editHolidayId, {
-      description: editDescription,
-      date: editDate,
-      siteId: editSiteId,
-    });
-    setHolidays((prev) => prev.map((h) => (h.holidayId === editHolidayId ? updated : h)));
-    setEditHolidayId(null);
+    try {
+      setNotice(null);
+      const updated = await updateHoliday(editHolidayId, {
+        description: values.description,
+        date: values.date,
+        siteId: values.siteId,
+      });
+      setHolidays((prev) => prev.map((h) => (h.holidayId === editHolidayId ? updated : h)));
+      setEditHolidayId(null);
+    } catch (error) {
+      setNotice(getErrorMessage(error, "Could not update holiday."));
+    }
   };
 
   return (
@@ -237,46 +295,57 @@ export default function AdminHolidays() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
             <h3 className="text-base font-medium text-foreground mb-4">Add Holiday</h3>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateSubmit(handleCreate)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Holiday Name</label>
                 <input
                   type="text"
                   placeholder="e.g., Diwali"
-                  value={form.description}
-                  onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                  {...registerCreate("description", {
+                    required: "Holiday name is required.",
+                    validate: (value) => value.trim().length > 0 || "Holiday name cannot be empty.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.description && <p className="text-xs text-destructive mt-1">{createErrors.description.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Date</label>
                 <input
                   type="date"
-                  value={form.date}
-                  onChange={async (e) => {
+                  {...registerCreate("date", {
+                    required: "Date is required.",
+                  })}
+                  onChange={(e) => {
                     const date = e.target.value;
-                    setForm((prev) => ({ ...prev, date }));
-                    if (form.siteId > 0 && date) {
-                      try {
-                        const existing = await getHolidayByDate(form.siteId, date);
-                        if (existing) {
-                          setNotice(`Holiday already exists: ${existing.description ?? existing.date}`);
-                        }
-                      } catch {
-                        // ignore if none
+                    const selectedSiteId = Number(getCreateValues("siteId"));
+                    if (date && selectedSiteId > 0) {
+                      const exists = holidays.some(
+                        (h) =>
+                          h.siteId === selectedSiteId &&
+                          h.date === date &&
+                          h.status !== "Inactive"
+                      );
+                      if (exists) {
+                        const siteName = sites.find((s) => s.siteId === selectedSiteId)?.name ?? `Site ${selectedSiteId}`;
+                        setNotice(`Holiday already exists for ${date} at ${siteName}.`);
+                      } else {
+                        setNotice(null);
                       }
                     }
                   }}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.date && <p className="text-xs text-destructive mt-1">{createErrors.date.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Apply To</label>
                 <select
-                  value={form.siteId}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, siteId: Number(e.target.value) }))
-                  }
+                  {...registerCreate("siteId", {
+                    valueAsNumber: true,
+                    validate: (value) =>
+                      value === -1 || value > 0 || "Select a valid site.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value={-1}>All sites</option>
@@ -286,23 +355,25 @@ export default function AdminHolidays() {
                     </option>
                   ))}
                 </select>
+                {createErrors.siteId && <p className="text-xs text-destructive mt-1">{createErrors.siteId.message}</p>}
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeCreateModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={isSaving}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                {isSaving ? "Adding..." : "Add Holiday"}
-              </button>
-            </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  {isSaving ? "Adding..." : "Add Holiday"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -310,46 +381,57 @@ export default function AdminHolidays() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md shadow-xl">
             <h3 className="text-base font-medium text-foreground mb-4">Edit Holiday</h3>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Holiday Name</label>
-            <input
-              type="text"
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Date</label>
-            <input
-              type="date"
-              value={editDate}
-              onChange={(e) => setEditDate(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Site</label>
-            <select
-              value={editSiteId}
-              onChange={(e) => setEditSiteId(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {sites.map((site) => (
-                <option key={site.siteId} value={site.siteId}>
-                  {site.name}
-                </option>
-              ))}
-            </select>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeEditHolidayModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+            <form onSubmit={handleEditSubmit(saveEditedHoliday)}>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Holiday Name</label>
+              <input
+                type="text"
+                {...registerEdit("description", {
+                  required: "Holiday name is required.",
+                  validate: (value) => value.trim().length > 0 || "Holiday name cannot be empty.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.description && <p className="text-xs text-destructive mt-1">{editErrors.description.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Date</label>
+              <input
+                type="date"
+                {...registerEdit("date", {
+                  required: "Date is required.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.date && <p className="text-xs text-destructive mt-1">{editErrors.date.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Site</label>
+              <select
+                {...registerEdit("siteId", {
+                  valueAsNumber: true,
+                  min: { value: 1, message: "Select a valid site." },
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                Cancel
-              </button>
-              <button
-                onClick={() => void saveEditedHoliday()}
-                className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
-              >
-                Save
-              </button>
-            </div>
+                {sites.map((site) => (
+                  <option key={site.siteId} value={site.siteId}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+              {editErrors.siteId && <p className="text-xs text-destructive mt-1">{editErrors.siteId.message}</p>}
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeEditHolidayModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

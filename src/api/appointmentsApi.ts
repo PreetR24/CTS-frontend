@@ -1,6 +1,6 @@
 import api from "./axios";
 import type { ApiResponse } from "./apiTypes";
-import { unwrapAxiosApiData, unwrapAxiosApiList } from "./apiTypes";
+import { unwrapAxiosApiData, unwrapAxiosApiDataAllowNull, unwrapAxiosApiList } from "./apiTypes";
 
 export interface AppointmentDto {
   appointmentId: number;
@@ -12,6 +12,8 @@ export interface AppointmentDto {
   siteName?: string | null;
   serviceId: number;
   serviceName?: string | null;
+  roomId?: number | null;
+  roomName?: string | null;
   slotDate: string;
   startTime: string;
   endTime: string;
@@ -147,5 +149,5 @@ export async function fillWaitlist(waitId: number, bookingChannel = "FrontDesk")
 
 export async function removeWaitlist(waitId: number): Promise<void> {
   const res = await api.delete<ApiResponse<object>>(`/waitlist/${waitId}`);
-  unwrapAxiosApiData(res);
+  unwrapAxiosApiDataAllowNull(res);
 }

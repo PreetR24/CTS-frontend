@@ -13,7 +13,7 @@ import OperationsGuard from "./OperationsGuard";
 import AdminLayout from "../layouts/AdminLayout";
 import ProviderLayout from "../layouts/ProviderLayout";
 import FrontDeskLayout from "../layouts/FrontDeskLayout";
-import StaffLayout from "../layouts/StaffLayout";
+import NurseLayout from "../layouts/NurseLayout";
 import PatientLayout from "../layouts/PatientLayout";
 import OperationsLayout from "../layouts/OperationsLayout";
 
@@ -44,20 +44,18 @@ import FrontDeskCheckIn from "../pages/frontdesk/CheckIn";
 import FrontDeskQueue from "../pages/frontdesk/Queue";
 import FrontDeskSearch from "../pages/frontdesk/Search";
 import FrontDeskWaitlist from "../pages/frontdesk/Waitlist";
+import FrontDeskSchedule from "../pages/frontdesk/Schedule";
 
-// Staff Pages
-import StaffDashboard from "../pages/staff/Dashboard";
-import StaffSchedule from "../pages/staff/Schedule";
-import StaffPatients from "../pages/staff/Patients";
-import StaffRooms from "../pages/staff/Rooms";
-import StaffTasks from "../pages/staff/Tasks";
+// Nurse Pages
+import NurseDashboard from "../pages/nurse/Dashboard";
+import NurseSchedule from "../pages/nurse/Schedule";
+import NursePatients from "../pages/nurse/Patients";
+import NurseRooms from "../pages/nurse/Rooms";
 
 // Patient Pages
 import PatientDashboard from "../pages/patient/Dashboard";
 import PatientAppointments from "../pages/patient/Appointments";
-import PatientRecords from "../pages/patient/Records";
 import PatientProfile from "../pages/patient/Profile";
-import PatientPrescriptions from "../pages/patient/Prescriptions";
 import PatientDoctors from "../pages/patient/Doctors";
 
 // Operations Pages
@@ -130,6 +128,7 @@ export const router = createBrowserRouter([
             Component: FrontDeskLayout,
             children: [
               { index: true, Component: FrontDeskDashboard },
+              { path: "schedule", Component: FrontDeskSchedule },
               { path: "appointments", Component: FrontDeskBooking },
               { path: "checkin", Component: FrontDeskCheckIn },
               { path: "waitlist", Component: FrontDeskWaitlist },
@@ -140,19 +139,28 @@ export const router = createBrowserRouter([
         ],
       },
 
-      // ✅ STAFF / NURSE
+      // ✅ NURSE
       {
         Component: NurseGuard,
         children: [
           {
             path: "/staff",
-            Component: StaffLayout,
+            Component: NurseLayout,
             children: [
-              { index: true, Component: StaffDashboard },
-              { path: "schedule", Component: StaffSchedule },
-              { path: "queue", Component: StaffPatients },
-              { path: "rooms", Component: StaffRooms },
-              { path: "tasks", Component: StaffTasks },
+              { index: true, Component: NurseDashboard },
+              { path: "schedule", Component: NurseSchedule },
+              { path: "queue", Component: NursePatients },
+              { path: "rooms", Component: NurseRooms },
+            ],
+          },
+          {
+            path: "/nurse",
+            Component: NurseLayout,
+            children: [
+              { index: true, Component: NurseDashboard },
+              { path: "schedule", Component: NurseSchedule },
+              { path: "queue", Component: NursePatients },
+              { path: "rooms", Component: NurseRooms },
             ],
           },
         ],
@@ -170,8 +178,6 @@ export const router = createBrowserRouter([
               { path: "doctors", Component: PatientDoctors },
               { path: "book", Component: PatientAppointments },
               { path: "appointments", Component: PatientAppointments },
-              { path: "records", Component: PatientRecords },
-              { path: "prescriptions", Component: PatientPrescriptions },
               { path: "profile", Component: PatientProfile },
             ],
           },

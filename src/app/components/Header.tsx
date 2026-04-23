@@ -1,18 +1,19 @@
 import { LogOut, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { useAuth } from "../../api/AuthContext";
 import { meApi } from "../../api/authApi";
 import { updateUser } from "../../api/usersApi";
 
 interface HeaderProps {
   title: string;
-  userName: string;
-  userRole: string;
+  userName?: string;
+  userRole?: string;
   enableProfileEdit?: boolean;
 }
 
-export function Header({ title, userName, userRole, enableProfileEdit = false }: HeaderProps) {
+export function Header({ title, userName = "User", userRole = "Role", enableProfileEdit = false }: HeaderProps) {
   const navigate = useNavigate();
   const { logout } = useAuth();
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -34,7 +35,7 @@ export function Header({ title, userName, userRole, enableProfileEdit = false }:
         setProfileUserId(me.userId);
         setProfileName(me.name);
         setProfileEmail(me.email);
-        setProfilePhone("");
+        setProfilePhone(me.phone ?? "");
         setDisplayName(me.name);
         setDisplayRole(me.role);
       } catch {
@@ -78,8 +79,11 @@ export function Header({ title, userName, userRole, enableProfileEdit = false }:
       setProfilePhone(updated.phone ?? "");
       setNotice("Profile updated.");
       setShowProfileModal(false);
-    } catch {
-      setNotice("You are not allowed to update profile from this role.");
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error)
+        ? error.response?.data?.message
+        : undefined;
+      setNotice(msg ?? "You are not allowed to update profile from this role.");
     }
   };
 

@@ -6,7 +6,7 @@ const FrontDeskGuard = () => {
 
   if (loading) return null;
 
-  if (role !== "Frontdesk") {
+  if (role !== "FrontDesk") {
     return <Navigate to={landingPage ?? "/"} replace />;
   }
 

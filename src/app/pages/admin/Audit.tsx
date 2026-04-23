@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { searchAuditLogs, type AuditLogDto } from "../../../api/adminGovernanceApi";
+import { isAxiosError } from "axios";
 
 export default function AdminAudit() {
   const [rows, setRows] = useState<AuditLogDto[]>([]);
@@ -7,15 +8,23 @@ export default function AdminAudit() {
   const [textSearch, setTextSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchRows = async () => {
     setLoading(true);
     try {
+      setLoadError(null);
       const data = await searchAuditLogs({
         page,
         pageSize,
       });
       setRows(data);
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error)
+        ? error.response?.data?.message
+        : undefined;
+      setRows([]);
+      setLoadError(msg ?? "Could not load audit logs.");
     } finally {
       setLoading(false);
     }
@@ -34,7 +43,8 @@ export default function AdminAudit() {
         r.resource.toLowerCase().includes(q) ||
         (r.metadata ?? "").toLowerCase().includes(q) ||
         String(r.auditId).includes(q) ||
-        String(r.userId ?? "").includes(q)
+        String(r.userId ?? "").includes(q) ||
+        (r.userName ?? "").toLowerCase().includes(q)
     );
   }, [rows, textSearch]);
 
@@ -43,6 +53,7 @@ export default function AdminAudit() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Audit Logs</h1>
         <p className="text-sm text-muted-foreground mt-1">Master search with live filtering on each typed letter</p>
+        {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border p-4 mb-4">
@@ -50,7 +61,7 @@ export default function AdminAudit() {
           <input
             value={textSearch}
             onChange={(e) => setTextSearch(e.target.value)}
-            placeholder="Master search (userId/action/resource/metadata/auditId)"
+            placeholder="Master search (user name/action/resource/metadata/auditId)"
             className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
           />
         </div>
@@ -91,7 +102,7 @@ export default function AdminAudit() {
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Audit ID</th>
-              <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">User ID</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">User Name</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Action</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Resource</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Timestamp</th>
@@ -111,7 +122,7 @@ export default function AdminAudit() {
               filteredRows.map((r) => (
                 <tr key={r.auditId} className="border-b border-border last:border-0">
                   <td className="py-3 px-4 text-sm text-foreground">{r.auditId}</td>
-                  <td className="py-3 px-4 text-sm text-muted-foreground">{r.userId ?? "-"}</td>
+                  <td className="py-3 px-4 text-sm text-muted-foreground">{r.userName ?? "-"}</td>
                   <td className="py-3 px-4 text-sm text-foreground">{r.action}</td>
                   <td className="py-3 px-4 text-sm text-muted-foreground">{r.resource}</td>
                   <td className="py-3 px-4 text-sm text-muted-foreground">{r.timestamp}</td>

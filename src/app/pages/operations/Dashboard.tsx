@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
 import { StatCard } from "../../components/StatCard";
-import { Users, Calendar, PhoneCall, TrendingUp } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { Users, Calendar, PhoneCall } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { fetchUsers, type UserDto } from "../../../api/usersApi";
 import {
   approveLeave,
   rejectLeave,
   searchLeaveRequests,
   searchOnCall,
+  searchRosterAssignments,
   searchRosters,
   type LeaveRequestDto,
   type OnCallDto,
+  type RosterAssignmentDto,
   type RosterDto,
 } from "../../../api/operationsApi";
 
 export default function OperationsDashboard() {
   const [rosters, setRosters] = useState<RosterDto[]>([]);
+  const [assignments, setAssignments] = useState<RosterAssignmentDto[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequestDto[]>([]);
   const [onCalls, setOnCalls] = useState<OnCallDto[]>([]);
   const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
@@ -24,20 +27,23 @@ export default function OperationsDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [rosterList, leaveList, onCallList, users] = await Promise.all([
+        const [rosterList, assignmentList, leaveList, onCallList, users] = await Promise.all([
           searchRosters(),
+          searchRosterAssignments().catch(() => [] as RosterAssignmentDto[]),
           searchLeaveRequests(),
           searchOnCall(),
           fetchUsers({ page: 1, pageSize: 500 }).catch(() => [] as UserDto[]),
         ]);
         if (cancelled) return;
         setRosters(rosterList);
+        setAssignments(assignmentList);
         setLeaves(leaveList);
         setOnCalls(onCallList);
         setUserNames(new Map(users.map((u) => [u.userId, u.name])));
       } catch {
         if (!cancelled) {
           setRosters([]);
+          setAssignments([]);
           setLeaves([]);
           setOnCalls([]);
         }
@@ -51,34 +57,22 @@ export default function OperationsDashboard() {
   const pendingLeaves = leaves.filter((l) => l.status === "Pending");
   const today = new Date().toISOString().slice(0, 10);
   const todayOnCalls = onCalls.filter((o) => o.date === today);
-  const todayShifts = todayOnCalls.flatMap((o) => {
-    const rows = [
-      {
-        id: o.onCallId * 10 + 1,
-        staff: userNames.get(o.primaryUserId) ?? "Team Member",
-        role: o.department ?? "OnCall",
-        shift: `${o.startTime}-${o.endTime}`,
-        status: o.status,
-      },
-    ];
-    if (o.backupUserId) {
-      rows.push({
-        id: o.onCallId * 10 + 2,
-        staff: userNames.get(o.backupUserId) ?? "Team Member",
-        role: `${o.department ?? "OnCall"} Backup`,
-        shift: `${o.startTime}-${o.endTime}`,
-        status: o.status,
-      });
-    }
-    return rows;
-  });
+  const todayShifts = assignments
+    .filter((a) => a.date === today && (a.role ?? "").toLowerCase() === "nurse")
+    .map((a) => ({
+      id: a.assignmentId,
+      staff: userNames.get(a.userId) ?? `Nurse #${a.userId}`,
+      role: "Nurse",
+      shift: `Template #${a.shiftTemplateId}`,
+      status: a.status,
+    }));
 
   const refreshLeaves = async () => {
     const leaveList = await searchLeaveRequests();
     setLeaves(leaveList);
   };
 
-  const weeklyStaffing = (() => {
+  const weeklyNurseCoverage = (() => {
     const dayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const grouped = new Map<string, { scheduled: number; actual: number }>();
     for (const item of onCalls) {
@@ -94,50 +88,19 @@ export default function OperationsDashboard() {
       day,
       scheduled: grouped.get(day)?.scheduled ?? 0,
       actual: grouped.get(day)?.actual ?? 0,
-      target: 25,
     }));
-  })();
-
-  const utilizationData = (() => {
-    const monthMap = new Map<string, { rosterCount: number; leaveCount: number }>();
-    for (const r of rosters) {
-      const key = r.periodStart.slice(0, 7);
-      if (!key) continue;
-      const current = monthMap.get(key) ?? { rosterCount: 0, leaveCount: 0 };
-      current.rosterCount += 1;
-      monthMap.set(key, current);
-    }
-    for (const l of leaves) {
-      const key = l.startDate.slice(0, 7);
-      if (!key) continue;
-      const current = monthMap.get(key) ?? { rosterCount: 0, leaveCount: 0 };
-      current.leaveCount += 1;
-      monthMap.set(key, current);
-    }
-    return Array.from(monthMap.entries())
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .slice(-4)
-      .map(([month, data], index) => {
-        const base = data.rosterCount * 10;
-        const penalty = data.leaveCount * 5;
-        return {
-          name: `Week ${index + 1}`,
-          utilization: Math.max(0, Math.min(100, base - penalty)),
-        };
-      });
   })();
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Operations Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Staff management and operational analytics</p>
+        <p className="text-sm text-muted-foreground mt-1">Nurse management and operational analytics</p>
       </div>
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard
-          title="Staff on Duty"
+          title="Nurses on Duty"
           value={todayShifts.length}
           icon={Users}
           color="bg-gradient-to-br from-[#6b9bd1]/20 to-[#5a8bc1]/10"
@@ -151,14 +114,7 @@ export default function OperationsDashboard() {
           subtitle="Awaiting approval"
         />
         <StatCard
-          title="Utilization Rate"
-          value={rosters.length > 0 ? `${Math.min(99, 80 + rosters.length)}%` : "0%"}
-          icon={TrendingUp}
-          color="bg-gradient-to-br from-[#95d4a8]/20 to-[#75b488]/10"
-          subtitle="This week"
-        />
-        <StatCard
-          title="On-Call Staff"
+          title="On-Call Nurses"
           value={todayOnCalls.length}
           icon={PhoneCall}
           color="bg-gradient-to-br from-[#a68fcf]/20 to-[#9478bf]/10"
@@ -166,12 +122,11 @@ export default function OperationsDashboard() {
         />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div className="mb-6">
         <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
-          <h3 className="text-sm font-medium text-foreground mb-4">Weekly Staffing Levels</h3>
+          <h3 className="text-sm font-medium text-foreground mb-4">Weekly Nurse Coverage</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={weeklyStaffing}>
+            <BarChart data={weeklyNurseCoverage}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5dfd8" />
               <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#736e68" }} />
               <YAxis tick={{ fontSize: 11, fill: "#736e68" }} />
@@ -185,45 +140,16 @@ export default function OperationsDashboard() {
               />
               <Bar dataKey="scheduled" fill="#6b9bd1" radius={[8, 8, 0, 0]} name="Scheduled" />
               <Bar dataKey="actual" fill="#95d4a8" radius={[8, 8, 0, 0]} name="Actual" />
-              <Bar dataKey="target" fill="#f0b895" radius={[8, 8, 0, 0]} name="Target" />
             </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
-          <h3 className="text-sm font-medium text-foreground mb-4">Staff Utilization Trend</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={utilizationData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5dfd8" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#736e68" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#736e68" }} domain={[0, 100]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #e5dfd8",
-                  borderRadius: "12px",
-                  fontSize: "12px",
-                }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="utilization" 
-                stroke="#a68fcf" 
-                strokeWidth={3} 
-                dot={{ fill: "#a68fcf", r: 5 }}
-                activeDot={{ r: 7 }}
-              />
-            </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Today's Roster & Pending Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-card rounded-2xl border border-border shadow-sm">
           <div className="p-5 border-b border-border bg-gradient-to-r from-[#faf8f5] to-[#f5f0ea]">
-            <h3 className="text-sm font-medium text-foreground">Today's Staff Roster</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{todayShifts.length} staff members on duty</p>
+            <h3 className="text-sm font-medium text-foreground">Today's Nurse Roster</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{todayShifts.length} nurses on duty</p>
           </div>
           <div className="p-5">
             <div className="space-y-3">

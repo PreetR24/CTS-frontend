@@ -33,6 +33,8 @@ export interface UserCreatePayload {
   role: string;
   email: string;
   phone?: string;
+  specialty?: string;
+  credentials?: string;
 }
 
 export interface UserUpdatePayload {

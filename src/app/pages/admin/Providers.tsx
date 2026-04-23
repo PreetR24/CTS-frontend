@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit, Stethoscope } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import {
   activateProvider,
   createProvider,
@@ -19,17 +21,25 @@ export default function AdminProviders() {
   const [filterStatus, setFilterStatus] = useState("Active");
   const [providers, setProviders] = useState<AdminProviderRow[]>([]);
   const [editProviderId, setEditProviderId] = useState<number | null>(null);
-  const [editProviderName, setEditProviderName] = useState("");
-  const [editProviderSpecialty, setEditProviderSpecialty] = useState("");
-  const [editProviderCredentials, setEditProviderCredentials] = useState("");
-  const [editProviderEmail, setEditProviderEmail] = useState("");
-  const [newProviderName, setNewProviderName] = useState("");
-  const [newProviderEmail, setNewProviderEmail] = useState("");
-  const [newProviderPhone, setNewProviderPhone] = useState("");
-  const [newProviderSpecialty, setNewProviderSpecialty] = useState("General");
-  const [newProviderCredentials, setNewProviderCredentials] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    reset: resetCreateForm,
+    formState: { errors: createErrors },
+  } = useForm<{ name: string; specialty: string; email: string; phone: string; credentials: string }>({
+    defaultValues: { name: "", specialty: "General", email: "", phone: "", credentials: "" },
+  });
+  const {
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEditForm,
+    formState: { errors: editErrors },
+  } = useForm<{ name: string; specialty: string; credentials: string; email: string }>({
+    defaultValues: { name: "", specialty: "", credentials: "", email: "" },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -73,84 +83,118 @@ export default function AdminProviders() {
   );
 
   const openCreateModal = () => setShowModal(true);
-  const closeCreateModal = () => setShowModal(false);
-  const openEditModal = async (providerId: number) => {
-    const detail = await getProviderById(providerId);
-    setEditProviderId(providerId);
-    setEditProviderName(detail.name);
-    setEditProviderSpecialty(detail.specialty ?? "");
-    setEditProviderCredentials(detail.credentials ?? "");
-    setEditProviderEmail(detail.contactInfo ?? "");
-    setShowEditModal(true);
+  const closeCreateModal = () => {
+    setShowModal(false);
+    resetCreateForm({ name: "", specialty: "General", email: "", phone: "", credentials: "" });
   };
-  const closeEditModal = () => setShowEditModal(false);
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
+  const openEditModal = async (providerId: number) => {
+    try {
+      setActionError(null);
+      const detail = await getProviderById(providerId);
+      setEditProviderId(providerId);
+      resetEditForm({
+        name: detail.name,
+        specialty: detail.specialty ?? "",
+        credentials: detail.credentials ?? "",
+        email: detail.contactInfo ?? "",
+      });
+      setShowEditModal(true);
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not load provider details."));
+    }
+  };
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setEditProviderId(null);
+  };
 
   const deactivateProviderRow = async (providerId: number) => {
-    await deactivateProvider(providerId);
-    setProviders((prev) =>
-      prev.map((p) => (p.id === providerId ? { ...p, status: "Inactive" } : p))
-    );
+    try {
+      setActionError(null);
+      await deactivateProvider(providerId);
+      setProviders((prev) =>
+        prev.map((p) => (p.id === providerId ? { ...p, status: "Inactive" } : p))
+      );
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not deactivate provider."));
+    }
   };
 
   const activateProviderRow = async (providerId: number) => {
-    await activateProvider(providerId);
-    setProviders((prev) =>
-      prev.map((p) => (p.id === providerId ? { ...p, status: "Active" } : p))
-    );
+    try {
+      setActionError(null);
+      await activateProvider(providerId);
+      setProviders((prev) =>
+        prev.map((p) => (p.id === providerId ? { ...p, status: "Active" } : p))
+      );
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not activate provider."));
+    }
   };
 
-  const createProviderFromModal = async () => {
-    if (!newProviderName.trim()) return;
-    const created = await createProvider({
-      name: newProviderName.trim(),
-      email: newProviderEmail.trim() || undefined,
-      phone: newProviderPhone.trim() || undefined,
-      specialty: newProviderSpecialty.trim() || undefined,
-      credentials: newProviderCredentials.trim() || undefined,
-      contactInfo: newProviderEmail.trim() || undefined,
-    });
-    const services = await fetchServices();
-    setProviders((prev) => [
-      ...prev,
-      {
-        id: created.providerId,
-        name: created.name,
-        specialty: created.specialty ?? "—",
-        email: created.contactInfo ?? "-",
-        serviceCount: 0,
-        status: created.status,
-      },
-    ]);
-    void services;
-    setNewProviderName("");
-    setNewProviderEmail("");
-    setNewProviderPhone("");
-    setNewProviderSpecialty("General");
-    setNewProviderCredentials("");
-    setShowModal(false);
+  const createProviderFromModal = async (values: { name: string; specialty: string; email: string; phone: string; credentials: string }) => {
+    try {
+      setActionError(null);
+      const created = await createProvider({
+        name: values.name.trim(),
+        email: values.email.trim() || undefined,
+        phone: values.phone.trim() || undefined,
+        specialty: values.specialty.trim() || undefined,
+        credentials: values.credentials.trim() || undefined,
+        contactInfo: values.email.trim() || undefined,
+      });
+      const services = await fetchServices();
+      setProviders((prev) => [
+        ...prev,
+        {
+          id: created.providerId,
+          name: created.name,
+          specialty: created.specialty ?? "—",
+          email: created.contactInfo ?? "-",
+          serviceCount: 0,
+          status: created.status,
+        },
+      ]);
+      void services;
+      closeCreateModal();
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not create provider."));
+    }
   };
 
-  const saveEditedProvider = async () => {
-    if (editProviderId == null || !editProviderName.trim()) return;
-    const updated = await updateProvider(editProviderId, {
-      name: editProviderName.trim(),
-      specialty: editProviderSpecialty.trim() || undefined,
-      credentials: editProviderCredentials.trim() || undefined,
-      contactInfo: editProviderEmail.trim() || undefined,
-    });
-    setProviders((prev) =>
-      prev.map((p) =>
-        p.id === editProviderId
-          ? {
-              ...p,
-              name: updated.name,
-              specialty: updated.specialty ?? "—",
-              email: updated.contactInfo ?? "-",
-            }
-          : p
-      )
-    );
-    setShowEditModal(false);
+  const saveEditedProvider = async (values: { name: string; specialty: string; credentials: string; email: string }) => {
+    if (editProviderId == null) return;
+    try {
+      setActionError(null);
+      const updated = await updateProvider(editProviderId, {
+        name: values.name.trim(),
+        specialty: values.specialty.trim() || undefined,
+        credentials: values.credentials.trim() || undefined,
+        contactInfo: values.email.trim() || undefined,
+      });
+      setProviders((prev) =>
+        prev.map((p) =>
+          p.id === editProviderId
+            ? {
+                ...p,
+                name: updated.name,
+                specialty: updated.specialty ?? "—",
+                email: updated.contactInfo ?? "-",
+              }
+            : p
+        )
+      );
+      closeEditModal();
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not update provider."));
+    }
   };
 
   return (
@@ -159,6 +203,7 @@ export default function AdminProviders() {
         <h1 className="text-xl font-medium text-foreground">Providers</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage healthcare providers and their specialties</p>
         {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
+        {actionError && <p className="text-sm text-destructive mt-2">{actionError}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -282,24 +327,26 @@ export default function AdminProviders() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg">
             <h3 className="text-base font-medium text-foreground mb-4">Add New Provider</h3>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateSubmit(createProviderFromModal)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Full Name</label>
                 <input
                   type="text"
                   placeholder="Dr. Firstname Lastname"
-                  value={newProviderName}
-                  onChange={(e) => setNewProviderName(e.target.value)}
+                  {...registerCreate("name", {
+                    required: "Provider name is required.",
+                    validate: (value) => value.trim().length > 0 || "Provider name cannot be empty.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.name && <p className="text-xs text-destructive mt-1">{createErrors.name.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Specialty</label>
                 <input
                   type="text"
                   placeholder="e.g., Cardiology, Pediatrics"
-                  value={newProviderSpecialty}
-                  onChange={(e) => setNewProviderSpecialty(e.target.value)}
+                  {...registerCreate("specialty")}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -308,46 +355,56 @@ export default function AdminProviders() {
                 <input
                   type="email"
                   placeholder="doctor@careschedule.in"
-                  value={newProviderEmail}
-                  onChange={(e) => setNewProviderEmail(e.target.value)}
+                  {...registerCreate("email", {
+                    pattern: {
+                      value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                      message: "Enter a valid email address.",
+                    },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.email && <p className="text-xs text-destructive mt-1">{createErrors.email.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Phone</label>
                 <input
                   type="text"
                   placeholder="9000000000"
-                  value={newProviderPhone}
-                  onChange={(e) => setNewProviderPhone(e.target.value)}
+                  {...registerCreate("phone", {
+                    pattern: {
+                      value: /^[0-9+\-\s()]*$/,
+                      message: "Phone can contain digits and + - ( ) only.",
+                    },
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.phone && <p className="text-xs text-destructive mt-1">{createErrors.phone.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Credentials</label>
                 <input
                   type="text"
                   placeholder="MBBS, MD"
-                  value={newProviderCredentials}
-                  onChange={(e) => setNewProviderCredentials(e.target.value)}
+                  {...registerCreate("credentials")}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeCreateModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void createProviderFromModal()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Create Provider
-              </button>
-            </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Create Provider
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -355,48 +412,57 @@ export default function AdminProviders() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
             <h3 className="text-base font-medium text-foreground mb-4">Edit Provider</h3>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Provider Name</label>
-            <input
-              type="text"
-              value={editProviderName}
-              onChange={(e) => setEditProviderName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Specialty</label>
-            <input
-              type="text"
-              value={editProviderSpecialty}
-              onChange={(e) => setEditProviderSpecialty(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Credentials</label>
-            <input
-              type="text"
-              value={editProviderCredentials}
-              onChange={(e) => setEditProviderCredentials(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Email / Contact</label>
-            <input
-              type="email"
-              value={editProviderEmail}
-              onChange={(e) => setEditProviderEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeEditModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void saveEditedProvider()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Save
-              </button>
-            </div>
+            <form onSubmit={handleEditSubmit(saveEditedProvider)}>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Provider Name</label>
+              <input
+                type="text"
+                {...registerEdit("name", {
+                  required: "Provider name is required.",
+                  validate: (value) => value.trim().length > 0 || "Provider name cannot be empty.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.name && <p className="text-xs text-destructive mt-1">{editErrors.name.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Specialty</label>
+              <input
+                type="text"
+                {...registerEdit("specialty")}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Credentials</label>
+              <input
+                type="text"
+                {...registerEdit("credentials")}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Email / Contact</label>
+              <input
+                type="email"
+                {...registerEdit("email", {
+                  pattern: {
+                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                    message: "Enter a valid email address.",
+                  },
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {editErrors.email && <p className="text-xs text-destructive mt-1">{editErrors.email.message}</p>}
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

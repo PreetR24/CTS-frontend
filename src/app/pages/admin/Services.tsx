@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Edit, Activity } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import {
   activateService,
   createService,
@@ -10,6 +12,19 @@ import {
 } from "../../../api/masterdataApi";
 import { mapServiceRow, type AdminServiceRow } from "../../../api/adminViewMappers";
 
+type CreateServiceFormValues = {
+  name: string;
+  visitType: string;
+};
+
+type EditServiceFormValues = {
+  name: string;
+  visitType: string;
+  defaultDurationMin: number;
+  bufferBeforeMin: number;
+  bufferAfterMin: number;
+};
+
 export default function AdminServices() {
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -17,15 +32,31 @@ export default function AdminServices() {
   const [filterStatus, setFilterStatus] = useState("Active");
   const [services, setServices] = useState<AdminServiceRow[]>([]);
   const [editServiceId, setEditServiceId] = useState<number | null>(null);
-  const [editServiceName, setEditServiceName] = useState("");
-  const [editVisitType, setEditVisitType] = useState("New");
-  const [editDuration, setEditDuration] = useState(30);
-  const [editBufferBefore, setEditBufferBefore] = useState(0);
-  const [editBufferAfter, setEditBufferAfter] = useState(0);
-  const [newServiceName, setNewServiceName] = useState("");
-  const [newVisitType, setNewVisitType] = useState("New");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    reset: resetCreateForm,
+    formState: { errors: createErrors },
+  } = useForm<CreateServiceFormValues>({
+    defaultValues: { name: "", visitType: "New" },
+  });
+  const {
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEditForm,
+    formState: { errors: editErrors },
+  } = useForm<EditServiceFormValues>({
+    defaultValues: {
+      name: "",
+      visitType: "New",
+      defaultDurationMin: 30,
+      bufferBeforeMin: 0,
+      bufferAfterMin: 0,
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -57,59 +88,96 @@ export default function AdminServices() {
   );
 
   const openCreateModal = () => setShowModal(true);
-  const closeCreateModal = () => setShowModal(false);
-  const openEditModal = async (serviceId: number) => {
-    const detail = await getServiceById(serviceId);
-    setEditServiceId(serviceId);
-    setEditServiceName(detail.name);
-    setEditVisitType(detail.visitType);
-    setEditDuration(detail.defaultDurationMin);
-    setEditBufferBefore(detail.bufferBeforeMin);
-    setEditBufferAfter(detail.bufferAfterMin);
-    setShowEditModal(true);
+  const closeCreateModal = () => {
+    setShowModal(false);
+    resetCreateForm({ name: "", visitType: "New" });
   };
-  const closeEditModal = () => setShowEditModal(false);
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) {
+      return error.response?.data?.message ?? fallback;
+    }
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
+  const openEditModal = async (serviceId: number) => {
+    try {
+      setActionError(null);
+      const detail = await getServiceById(serviceId);
+      setEditServiceId(serviceId);
+      resetEditForm({
+        name: detail.name,
+        visitType: detail.visitType,
+        defaultDurationMin: detail.defaultDurationMin,
+        bufferBeforeMin: detail.bufferBeforeMin,
+        bufferAfterMin: detail.bufferAfterMin,
+      });
+      setShowEditModal(true);
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not load service details."));
+    }
+  };
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setEditServiceId(null);
+  };
 
   const deactivateServiceRow = async (serviceId: number) => {
-    await deactivateService(serviceId);
-    setServices((prev) =>
-      prev.map((s) => (s.id === serviceId ? { ...s, status: "Inactive" } : s))
-    );
+    try {
+      setActionError(null);
+      await deactivateService(serviceId);
+      setServices((prev) =>
+        prev.map((s) => (s.id === serviceId ? { ...s, status: "Inactive" } : s))
+      );
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not deactivate service."));
+    }
   };
 
   const activateServiceRow = async (serviceId: number) => {
-    await activateService(serviceId);
-    setServices((prev) =>
-      prev.map((s) => (s.id === serviceId ? { ...s, status: "Active" } : s))
-    );
+    try {
+      setActionError(null);
+      await activateService(serviceId);
+      setServices((prev) =>
+        prev.map((s) => (s.id === serviceId ? { ...s, status: "Active" } : s))
+      );
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not activate service."));
+    }
   };
 
-  const createServiceFromModal = async () => {
-    if (!newServiceName.trim() || !newVisitType.trim()) return;
-    const created = await createService({ name: newServiceName.trim(), visitType: newVisitType.trim() });
-    setServices((prev) => [...prev, mapServiceRow(created)]);
-    setNewServiceName("");
-    setNewVisitType("New");
-    setShowModal(false);
+  const createServiceFromModal = async (values: CreateServiceFormValues) => {
+    try {
+      setActionError(null);
+      const created = await createService({ name: values.name.trim(), visitType: values.visitType.trim() });
+      setServices((prev) => [...prev, mapServiceRow(created)]);
+      closeCreateModal();
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not create service."));
+    }
   };
 
-  const saveEditedService = async () => {
-    if (editServiceId == null || !editServiceName.trim()) return;
-    await updateService(editServiceId, {
-      name: editServiceName.trim(),
-      visitType: editVisitType,
-      defaultDurationMin: editDuration,
-      bufferBeforeMin: editBufferBefore,
-      bufferAfterMin: editBufferAfter,
-    });
-    const refreshed = await fetchServices();
-    setServices((prev) =>
-      prev.map((s) => {
-        const latest = refreshed.find((r) => r.serviceId === s.id);
-        return latest ? mapServiceRow(latest) : s;
-      })
-    );
-    setShowEditModal(false);
+  const saveEditedService = async (values: EditServiceFormValues) => {
+    if (editServiceId == null) return;
+    try {
+      setActionError(null);
+      await updateService(editServiceId, {
+        name: values.name.trim(),
+        visitType: values.visitType,
+        defaultDurationMin: values.defaultDurationMin,
+        bufferBeforeMin: values.bufferBeforeMin,
+        bufferAfterMin: values.bufferAfterMin,
+      });
+      const refreshed = await fetchServices();
+      setServices((prev) =>
+        prev.map((s) => {
+          const latest = refreshed.find((r) => r.serviceId === s.id);
+          return latest ? mapServiceRow(latest) : s;
+        })
+      );
+      closeEditModal();
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not update service."));
+    }
   };
 
   return (
@@ -118,6 +186,7 @@ export default function AdminServices() {
         <h1 className="text-xl font-medium text-foreground">Services</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage clinic services and consultation types</p>
         {loadError && <p className="text-sm text-destructive mt-2">{loadError}</p>}
+        {actionError && <p className="text-sm text-destructive mt-2">{actionError}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -236,62 +305,51 @@ export default function AdminServices() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-lg">
             <h3 className="text-base font-medium text-foreground mb-4">Add New Service</h3>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateSubmit(createServiceFromModal)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Service Name</label>
                 <input
                   type="text"
                   placeholder="e.g., General Consultation"
-                  value={newServiceName}
-                  onChange={(e) => setNewServiceName(e.target.value)}
+                  {...registerCreate("name", {
+                    required: "Service name is required.",
+                    validate: (value) =>
+                      value.trim().length > 0 || "Service name cannot be empty.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                {createErrors.name && <p className="text-xs text-destructive mt-1">{createErrors.name.message}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Visit Type</label>
                 <select
-                  value={newVisitType}
-                  onChange={(e) => setNewVisitType(e.target.value)}
+                  {...registerCreate("visitType", {
+                    required: "Visit type is required.",
+                  })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option>New</option>
                   <option>FollowUp</option>
                   <option>Procedure</option>
                 </select>
+                {createErrors.visitType && <p className="text-xs text-destructive mt-1">{createErrors.visitType.message}</p>}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Duration (min)</label>
-                  <input
-                    type="number"
-                    placeholder="30"
-                    className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Buffer (min)</label>
-                  <input
-                    type="number"
-                    placeholder="5"
-                    className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Create Service
+                </button>
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeCreateModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void createServiceFromModal()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Create Service
-              </button>
-            </div>
+            </form>
           </div>
         </div>
       )}
@@ -299,60 +357,87 @@ export default function AdminServices() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
             <h3 className="text-base font-medium text-foreground mb-4">Edit Service</h3>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Service Name</label>
-            <input
-              type="text"
-              value={editServiceName}
-              onChange={(e) => setEditServiceName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Visit Type</label>
-            <select
-              value={editVisitType}
-              onChange={(e) => setEditVisitType(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option>New</option>
-              <option>FollowUp</option>
-              <option>Procedure</option>
-            </select>
-            <div className="grid grid-cols-3 gap-3 mt-3">
+            <form onSubmit={handleEditSubmit(saveEditedService)}>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Service Name</label>
               <input
-                type="number"
-                value={editDuration}
-                onChange={(e) => setEditDuration(Number(e.target.value))}
-                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
-                placeholder="Duration"
+                type="text"
+                {...registerEdit("name", {
+                  required: "Service name is required.",
+                  validate: (value) =>
+                    value.trim().length > 0 || "Service name cannot be empty.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
-              <input
-                type="number"
-                value={editBufferBefore}
-                onChange={(e) => setEditBufferBefore(Number(e.target.value))}
-                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
-                placeholder="Buffer before"
-              />
-              <input
-                type="number"
-                value={editBufferAfter}
-                onChange={(e) => setEditBufferAfter(Number(e.target.value))}
-                className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
-                placeholder="Buffer after"
-              />
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={closeEditModal}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+              {editErrors.name && <p className="text-xs text-destructive mt-1">{editErrors.name.message}</p>}
+              <label className="block text-sm font-medium text-foreground mb-1.5 mt-3">Visit Type</label>
+              <select
+                {...registerEdit("visitType", {
+                  required: "Visit type is required.",
+                })}
+                className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                Cancel
-              </button>
-              <button
-                onClick={() => void saveEditedService()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-              >
-                Save
-              </button>
-            </div>
+                <option>New</option>
+                <option>FollowUp</option>
+                <option>Procedure</option>
+              </select>
+              {editErrors.visitType && <p className="text-xs text-destructive mt-1">{editErrors.visitType.message}</p>}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                <div className="min-w-0">
+                  <label className="block text-xs font-medium text-foreground mb-1">Duration (min)</label>
+                  <input
+                    type="number"
+                    {...registerEdit("defaultDurationMin", {
+                      valueAsNumber: true,
+                      min: { value: 0, message: "Duration cannot be negative." },
+                    })}
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                    placeholder="Duration"
+                  />
+                  {editErrors.defaultDurationMin && <p className="text-xs text-destructive mt-1">{editErrors.defaultDurationMin.message}</p>}
+                </div>
+                <div className="min-w-0">
+                  <label className="block text-xs font-medium text-foreground mb-1">Buffer Before (min)</label>
+                  <input
+                    type="number"
+                    {...registerEdit("bufferBeforeMin", {
+                      valueAsNumber: true,
+                      min: { value: 0, message: "Buffer cannot be negative." },
+                    })}
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                    placeholder="Buffer before"
+                  />
+                  {editErrors.bufferBeforeMin && <p className="text-xs text-destructive mt-1">{editErrors.bufferBeforeMin.message}</p>}
+                </div>
+                <div className="min-w-0">
+                  <label className="block text-xs font-medium text-foreground mb-1">Buffer After (min)</label>
+                  <input
+                    type="number"
+                    {...registerEdit("bufferAfterMin", {
+                      valueAsNumber: true,
+                      min: { value: 0, message: "Buffer cannot be negative." },
+                    })}
+                    className="w-full min-w-0 px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
+                    placeholder="Buffer after"
+                  />
+                  {editErrors.bufferAfterMin && <p className="text-xs text-destructive mt-1">{editErrors.bufferAfterMin.message}</p>}
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

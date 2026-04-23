@@ -60,9 +60,6 @@ export default function ProviderDashboard() {
     date: apt.slotDate,
   }));
   const openAppointmentsPage = () => navigate("/provider/appointments");
-  const openSchedulePage = () => navigate("/provider/schedule");
-  const openAvailabilityPage = () => navigate("/provider/availability");
-  const openLeavePage = () => navigate("/provider/leave");
 
   const today = new Date().toISOString().slice(0, 10);
   const todayAppointments = myAppointments.filter((apt) => apt.date === today);
@@ -155,32 +152,6 @@ export default function ProviderDashboard() {
               <Bar dataKey="appointments" fill="#7ba3c0" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
-        <div className="bg-card rounded-xl border border-border p-5">
-          <h3 className="text-sm font-medium text-foreground mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <button
-              onClick={openSchedulePage}
-              className="text-left px-4 py-3 rounded-lg bg-[#7ba3c0]/10 hover:bg-[#7ba3c0]/20 transition-colors"
-            >
-              <p className="text-sm font-medium text-foreground">View My Schedule</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Check upcoming appointments</p>
-            </button>
-            <button
-              onClick={openAvailabilityPage}
-              className="text-left px-4 py-3 rounded-lg bg-[#c4b5e8]/10 hover:bg-[#c4b5e8]/20 transition-colors"
-            >
-              <p className="text-sm font-medium text-foreground">Set Availability</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Manage templates and blocks</p>
-            </button>
-            <button
-              onClick={openLeavePage}
-              className="text-left px-4 py-3 rounded-lg bg-[#e8c9a9]/10 hover:bg-[#e8c9a9]/20 transition-colors"
-            >
-              <p className="text-sm font-medium text-foreground">Request Leave</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Create or track leave requests</p>
-            </button>
-          </div>
         </div>
       </div>
 

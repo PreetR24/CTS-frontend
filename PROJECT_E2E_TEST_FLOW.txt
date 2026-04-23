@@ -1,0 +1,435 @@
+CareSchedule End-to-End Manual Test Flow (All Roles)
+=====================================================
+
+Last updated
+------------
+2026-04-14
+
+Audience
+--------
+For a tester who does not know this project.
+
+Goal
+----
+Validate full flow across all portals:
+Admin -> Provider -> Patient -> FrontDesk -> Nurse -> Operations
+with CRUD checks, status transitions, and role-based access.
+
+Test setup
+----------
+1) Backend running (`dotnet run`), frontend running (`npm run dev`).
+2) Database migrated and seeded using:
+   - `frontend/BACKEND_SQLSERVER_DUMMY_DATA_SEED.txt`
+3) Keep browser DevTools open (Network tab) to verify API status codes.
+
+Test users (from seed)
+----------------------
+- Admin: `admin@care.com`
+- Operations: `ops1@care.com`
+- FrontDesk: `frontdesk1@care.com`
+- Nurse: `nurse1@care.com`
+- Provider: `provider1@care.com`
+- Patient: `patient1@care.com`
+
+Use your project’s known password for each seeded account.
+
+---------------------------------------------------
+Final execution order (run exactly in this order)
+---------------------------------------------------
+1) Common login/routing/profile checks for all roles.
+2) Admin portal full flow (master data + config + audit).
+3) Provider portal full flow (availability -> slots -> appointments -> leave).
+4) Patient portal full flow (dependent booking + profile).
+5) FrontDesk full flow (booking -> waitlist continuation -> check-in -> room assignment).
+6) Nurse full flow (schedule + patient care continuation).
+7) Operations full flow (roster + leave impact + on-call + analytics/workload).
+8) Role/API security negative checks (cross-role forbidden access).
+9) Final business flow run (single patient journey end-to-end).
+10) Edge/invalid-first stress pass (all forms + API error contract + concurrency).
+
+--------------------------------
+A) Common login/routing checks
+--------------------------------
+1) Login with each role and confirm route:
+   - Admin -> `/admin`
+   - Operations -> `/operations`
+   - FrontDesk -> `/frontdesk`
+   - Nurse -> `/nurse` (or `/staff` backward route)
+   - Provider -> `/provider`
+   - Patient -> `/patient`
+2) In header, open profile modal, edit phone/name, save, reload, verify persistence.
+3) Try opening another role route manually (forbidden route), confirm redirect/deny.
+
+--------------------------
+B) Admin portal full test
+--------------------------
+
+1. Dashboard
+- Confirm cards/charts render without errors.
+- Validate role counts are non-zero from seed data.
+
+2. Sites (CRUD + soft delete)
+- Create site with valid address JSON fields.
+- Edit site name/timezone/address.
+- Deactivate site; verify status changes to Inactive.
+- Reactivate site and verify Active.
+- Attempt deactivation of site referenced by active data; verify frontend error reason shown.
+
+3. Rooms (CRUD + linked to site)
+- Create room in an active site.
+- Edit room name/type/attributes.
+- Deactivate room and verify no hard delete.
+- Reactivate room.
+
+4. Services (CRUD)
+- Create service with duration/buffer values.
+- Edit all fields.
+- Deactivate/reactivate.
+- Validate numeric input rules (negative values blocked).
+
+5. Providers
+- Create provider-linked user (admin flow).
+- Edit specialty/credentials/contact.
+- Deactivate/reactivate.
+
+6. Users
+- Create users for each role (one test each).
+- Edit non-sensitive fields (name, email, phone).
+- Verify role cannot be changed in self-edit contexts.
+- Deactivate/reactivate user.
+
+7. Holidays
+- Create holiday for one site.
+- Create holiday for second site.
+- Attempt duplicate same site+date, confirm duplicate error message.
+- Filter by month and site dropdown.
+- Deactivate/reactivate.
+
+8. Config (Capacity + SLA + Blackout + System Config)
+- Capacity rules: create/edit/delete(deactivate)/reactivate.
+- SLA rules: create/edit/delete(deactivate)/reactivate.
+- Blackout: create/edit/deactivate/reactivate.
+- System config: create/edit value and verify persistence.
+
+9. Audit
+- Open audit page.
+- Use master search input (type-by-type filtering).
+- Verify recent actions after performing CRUD above.
+
+10. Reports (if currently used)
+- Open reports page and verify list does not crash.
+- Trigger available report action and verify response handling.
+
+-----------------------------
+C) Provider portal full test
+-----------------------------
+
+1. Dashboard
+- Confirm summary widgets load.
+- Click all action buttons; verify navigation works.
+
+2. Schedule
+- Filter by date.
+- Verify roster/provider schedule entries show correctly.
+
+3. Availability (Templates + Blocks + Slots)
+- Template CRUD:
+  - create valid template
+  - try duplicate same day/time -> duplicate error
+  - edit template time
+  - deactivate/reactivate (if supported)
+- Block CRUD:
+  - create block overlapping existing template time
+  - verify blocked slot behavior in slots view
+  - edit and delete/deactivate block
+- My Slots tab:
+  - verify slot time displays correctly
+  - verify source/status (Open/Booked) appears correctly
+  - confirm generated success acknowledgement message appears after generation
+
+4. Provider Services
+- Add mapping from services dropdown.
+- Edit custom duration/buffer.
+- Remove/deactivate mapping.
+- Ensure duplicates are blocked.
+
+5. Appointments
+- Load list, verify patient names visible.
+- Change allowed status transitions only.
+- Try invalid transition and verify UI/backend error message.
+
+6. Patients
+- Open patient list from provider side.
+- Open details action; verify no broken/empty modal states.
+
+7. Leave
+- Create leave request (future dates only).
+- Try past date range -> should be blocked.
+- Verify impact rows show and leave status reflects impacts.
+- Delete only pending leave (if policy pending-only).
+
+----------------------------
+D) Patient portal full test
+----------------------------
+
+1. Dashboard
+- Verify upcoming appointments/summary loads.
+
+2. Doctors / Booking flow (dependent dropdowns)
+- Sequence should work: Site -> Service -> Doctor -> Date -> Slot.
+- Verify each dropdown narrows next one.
+- If no doctors/slots found, verify proper empty message.
+
+3. Book appointment
+- Book valid slot.
+- Verify new appointment appears in patient appointments list.
+- Attempt booking past date/time -> blocked.
+- Deactivate any referenced site/provider/service/patient and retry booking -> blocked with clear active-status message.
+
+4. Appointments page
+- View details modal.
+- Perform allowed actions (cancel/reschedule if enabled).
+- Verify status updates in UI and persists after refresh.
+
+5. Profile
+- Edit main profile and merged emergency fields.
+- Verify phone/address save and reload.
+- Ensure internal IDs are hidden in UI.
+
+------------------------------
+E) FrontDesk portal full test
+------------------------------
+
+1. Dashboard
+- Verify queue/check-in/booking summary cards load.
+
+2. My Schedule
+- Open `/frontdesk/schedule`.
+- Verify logged-in frontdesk sees own roster assignments.
+
+3. Booking
+- Select site/service/provider/date and fetch slots.
+- Create appointment successfully.
+- Try past date/time booking -> blocked.
+- Try booking with inactive referenced entity (site/provider/service/patient or inactive provider-service mapping) -> blocked.
+- Add to waitlist:
+  - verify success message
+  - verify redirect to waitlist page
+
+4. Waitlist
+- Click “Book Slot” on an entry.
+- Verify redirect back to booking with prefilled params.
+- Complete booking; verify waitlist row removed from UI and DB status updated.
+- Try creating waitlist with inactive site/provider/service/patient -> blocked with clear backend message.
+
+5. Check-In
+- Check in booked patient.
+- If no data exists, verify friendly empty-state message.
+
+6. Queue / Rooms
+- Assign room to checked-in appointment.
+- Verify:
+  - appointment room updates
+  - check-in room updates
+  - resource hold row is created
+- Try assigning same room/time to another appointment -> conflict blocked.
+- Remove unsupported/irrelevant actions should not appear.
+
+7. Search
+- Search by patient name/phone/email.
+- Validate results and empty state.
+
+--------------------------
+F) Nurse portal full test
+--------------------------
+
+1. Dashboard
+- Verify queue/room shortcuts and counts.
+
+2. My Schedule
+- Default filter date = today.
+- Verify full shift template details displayed (name + time, not only ID).
+
+3. Patient Care Queue
+- Verify statuses follow pipeline from frontdesk continuation.
+- Use status filter and verify list updates.
+- Ensure only backend-mapped fields shown (no extra vitals fields).
+
+4. Rooms
+- Verify room occupancy from current check-ins.
+- No unauthorized hold-creation actions should exist.
+
+-------------------------------
+G) Operations portal full test
+-------------------------------
+
+1. Dashboard
+- Verify simplified charts load.
+- Today’s nurse roster should not show false empty when assignments exist.
+
+2. Roster
+- Add Shift Template:
+  - create Nurse template
+  - create FrontDesk template
+  - duplicate same site/role/name/time -> duplicate error
+- Add Shift Assignment:
+  - template dropdown should include Nurse + FrontDesk templates
+  - staff member dropdown should include Nurse + FrontDesk users
+  - submit with role mismatch -> clear blocked message
+  - backup same as primary -> blocked
+- Edit Assignment modal:
+  - replacement must be same role only
+  - nurse can be replaced only by nurse
+  - frontdesk can be replaced only by frontdesk
+- Delete assignment:
+  - mark absent soft-delete behavior
+  - removed from active assignment UI list
+- Weekly calendar:
+  - verify real dates
+  - verify role-aware count text (e.g., `1 Nurse, 1 FrontDesk`)
+
+3. Leave Management
+- Open detail and impact detail.
+- If any impact open, Approve must be blocked.
+- Mark all impacts resolved, then Approve should pass.
+
+4. On-Call Coverage
+- Full CRUD in add/edit modal.
+- Backup optional in create and edit.
+- Removing backup in edit should persist as null.
+- Backup dropdown excludes selected primary.
+
+5. Nurse Workload + Analytics
+- Verify simplified cards/graphs render.
+- No obsolete export button/action.
+
+------------------------------------
+H) Role/API security validation
+------------------------------------
+1) As FrontDesk, call admin-only pages via URL -> denied.
+2) As Nurse, confirm only own schedule data is returned.
+3) As Operations, confirm users API can return both Nurse and FrontDesk for roster flows.
+4) Confirm no use of singular `Operation` role in authorization behavior.
+
+------------------------------------
+I) Final full project business flow
+------------------------------------
+1) Admin configures sites/rooms/services/provider mappings.
+2) Provider sets availability and blocks; publishes slots.
+3) Patient books appointment OR FrontDesk books/waitlists.
+4) FrontDesk checks in patient and assigns room.
+5) Nurse continues queue statuses until provider consultation completes.
+6) Provider marks appointment outcome.
+7) Operations manages roster, on-call, leave impacts, and staffing continuity.
+8) Admin audits actions and verifies governance/config.
+
+------------------------------------------------------------
+J) Edge-case and validation stress testing (must run)
+------------------------------------------------------------
+
+Run this section after normal flow. This is the high-priority evaluation part.
+
+1) Field-level validation checks (every form in every role)
+- Required fields: submit empty form and verify inline error + no API call.
+- Min/max checks: test below min and above max numeric values.
+- Length checks: test 1-char and over-limit strings.
+- Pattern checks: invalid email/phone/time/date formats.
+- Date checks:
+  - past date when not allowed
+  - end date before start date
+  - same date boundary behavior
+- Time checks:
+  - end time <= start time
+  - overlap with existing slot/template/block
+- Dropdown checks:
+  - keep default “Select …” and submit
+  - stale dependent option after changing parent dropdown
+- Duplicate checks:
+  - duplicate site/service/holiday/template/provider-service mapping where uniqueness expected.
+
+2) API/error contract checks (all forms)
+- Trigger backend validation errors and verify exact message is visible in UI.
+- Trigger forbidden action (403) and verify user-friendly message.
+- Trigger not found (404) by editing/deleting stale record and verify graceful handling.
+- Trigger conflict/duplicate and verify clear error toast/text.
+- Disable internet briefly or stop backend:
+  - verify network error message shown
+  - verify page does not crash and retry path exists.
+
+3) Soft-delete/reactivation checks
+- For each module using soft delete, verify:
+  - delete changes status only (not hard removed in DB)
+  - inactive filter shows record
+  - activate restores usability
+  - linked constraints show meaningful backend reason on blocked deactivation.
+
+4) Role-specific negative authorization checks
+- Login as each role and attempt restricted pages and actions:
+  - URL direct navigation
+  - button/API action from DevTools replay
+- Verify unauthorized requests are blocked and do not mutate DB.
+
+5) Concurrency/race checks (critical)
+- Open same entity in 2 tabs:
+  - edit in tab A, delete/deactivate in tab B, then save in tab A.
+  - verify stale update error is handled cleanly.
+- Double-click submit buttons quickly:
+  - verify no duplicate create rows.
+- Assign same room or same shift concurrently:
+  - verify backend conflict protection and UI error feedback.
+
+---------------------------------------------------------
+K) Role-wise edge checklist for evaluator execution
+---------------------------------------------------------
+
+Admin edge checklist
+- Site deactivation with active dependencies -> blocked with reason.
+- Duplicate holiday (same site/date) -> blocked.
+- Invalid capacity/SLA values -> blocked.
+- User create invalid email/phone -> blocked.
+- User self-edit role mutation attempt -> blocked.
+
+Provider edge checklist
+- Template duplicate same day/time -> blocked.
+- Block overlapping template -> handled correctly.
+- Leave request in past date range -> blocked.
+- Appointment status invalid transition -> blocked with backend message.
+- Provider service duplicate mapping -> blocked.
+- Provider service mapping with inactive provider/service -> blocked.
+
+Patient edge checklist
+- Booking with missing dependent dropdown selection -> blocked.
+- Booking past date/time -> blocked.
+- Booking when no slots available -> proper empty-state and no crash.
+- Profile invalid fields -> inline errors shown.
+- Booking with inactive site/provider/service/patient or inactive provider-service mapping -> blocked.
+
+FrontDesk edge checklist
+- Booking with missing provider/service/site/date -> blocked.
+- Waitlist to booking continuation with stale/invalid params -> graceful error.
+- Room assignment conflict (already held room/time) -> blocked.
+- Check-in/queue actions on invalid appointment status -> blocked.
+- Waitlist create with inactive site/provider/service/patient -> blocked.
+
+Nurse edge checklist
+- Schedule fetch unauthorized for other user -> blocked by backend (self-only).
+- Queue action invalid next-status transition -> blocked with message.
+- Empty room/queue datasets show proper no-data messages.
+
+Operations edge checklist
+- Shift template duplicate (same site/role/name/time) -> blocked.
+- Assignment role mismatch (template role vs selected staff role) -> blocked.
+- Edit assignment replacement cross-role attempt -> not possible in dropdown; backend also blocks if forced.
+- On-call backup same as primary -> blocked.
+- Leave approval with unresolved impacts -> blocked.
+- Weekly calendar role split should match DB (`Nurse` + `FrontDesk` counts).
+
+Completion criteria
+-------------------
+- No blocking console errors in critical pages.
+- CRUD works with backend persistence.
+- Soft delete/reactivation works where designed.
+- Role restrictions hold.
+- Status transitions reflect backend truth.
+- Validation errors are shown for invalid input in every tested form.
+- Backend errors (400/403/404/409/500/network) are surfaced with clear user-facing messages.

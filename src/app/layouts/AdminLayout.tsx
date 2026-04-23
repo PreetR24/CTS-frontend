@@ -29,7 +29,7 @@ export default function AdminLayout() {
     <div className="admin-portal flex h-screen bg-background">
       <Sidebar items={sidebarItems} roleColor="bg-gradient-to-r from-[#a68fcf] to-[#9478bf]" />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header title="Admin Portal" userName="Vikram Singh" userRole="Administrator" enableProfileEdit />
+        <Header title="Admin Portal" enableProfileEdit />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

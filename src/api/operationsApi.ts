@@ -80,6 +80,17 @@ export interface RosterAssignmentDto {
   status: string;
 }
 
+export interface ShiftTemplateDto {
+  shiftTemplateId: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  role: string;
+  siteId: number;
+  status: string;
+}
+
 export interface RosterAssignmentSearchParams {
   siteId?: number;
   userId?: number;
@@ -221,7 +232,7 @@ export async function createRosterAssignment(payload: {
 
 export async function swapRosterAssignment(
   assignmentId: number,
-  payload: { withUserId: number; reason?: string }
+  payload: { newUserId: number; reason?: string }
 ): Promise<RosterAssignmentDto> {
   const res = await api.patch<ApiResponse<RosterAssignmentDto>>(
     `/roster-assignments/${assignmentId}/swap`,
@@ -238,5 +249,10 @@ export async function markRosterAssignmentAbsent(
     `/roster-assignments/${assignmentId}/absent`,
     payload ?? {}
   );
+  return unwrapAxiosApiData(res);
+}
+
+export async function getShiftTemplateById(shiftTemplateId: number): Promise<ShiftTemplateDto> {
+  const res = await api.get<ApiResponse<ShiftTemplateDto>>(`/shift-templates/${shiftTemplateId}`);
   return unwrapAxiosApiData(res);
 }

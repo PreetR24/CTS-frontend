@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import { fetchProviders, fetchServices, fetchSites, type ProviderDto, type ServiceDto, type SiteDto } from "../../../api/masterdataApi";
 import { searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
+
+type DoctorsFilterFormValues = {
+  siteId: string;
+  serviceId: string;
+  providerId: string;
+  date: string;
+};
 
 export default function PatientDoctors() {
   const [providers, setProviders] = useState<ProviderDto[]>([]);
@@ -13,6 +22,23 @@ export default function PatientDoctors() {
   const [siteId, setSiteId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [loadingDoctors, setLoadingDoctors] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<DoctorsFilterFormValues>({
+    defaultValues: {
+      siteId: "",
+      serviceId: "",
+      providerId: "",
+      date: new Date().toISOString().slice(0, 10),
+    },
+  });
+  const siteField = register("siteId", { required: "Site is required." });
+  const serviceField = register("serviceId", { required: "Service is required." });
+  const providerField = register("providerId", { required: "Doctor is required." });
+  const dateField = register("date", { required: "Date is required." });
 
   useEffect(() => {
     let cancelled = false;
@@ -57,10 +83,12 @@ export default function PatientDoctors() {
   const refreshDoctorOptions = async (nextSiteId: string, nextServiceId: string, nextDate: string) => {
     if (!nextSiteId || !nextServiceId || !nextDate) {
       setSlotsForSelection([]);
+      setSlots([]);
       return;
     }
     setLoadingDoctors(true);
     try {
+      setSlots([]);
       const responses = await Promise.all(
         activeProviders.map(async (provider) => {
           try {
@@ -79,9 +107,20 @@ export default function PatientDoctors() {
       const merged = responses.flat();
       setSlotsForSelection(merged);
       const allowedProviderIds = new Set(merged.map((s) => s.providerId));
+      let targetProviderId = providerId;
       if (!allowedProviderIds.has(Number(providerId || 0))) {
         const first = merged[0]?.providerId;
-        setProviderId(first ? String(first) : "");
+        targetProviderId = first ? String(first) : "";
+        setProviderId(targetProviderId);
+      }
+      if (targetProviderId) {
+        const data = await searchOpenSlots({
+          providerId: Number(targetProviderId),
+          serviceId: Number(nextServiceId),
+          siteId: Number(nextSiteId),
+          date: nextDate,
+        });
+        setSlots(data);
       }
     } finally {
       setLoadingDoctors(false);
@@ -90,13 +129,30 @@ export default function PatientDoctors() {
 
   const loadSlots = async () => {
     if (!providerId || !serviceId || !siteId || !date) return;
-    const data = await searchOpenSlots({
-      providerId: Number(providerId),
-      serviceId: Number(serviceId),
-      siteId: Number(siteId),
-      date,
-    });
-    setSlots(data);
+    try {
+      setActionError(null);
+      const data = await searchOpenSlots({
+        providerId: Number(providerId),
+        serviceId: Number(serviceId),
+        siteId: Number(siteId),
+        date,
+      });
+      setSlots(data);
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error)
+        ? error.response?.data?.message
+        : undefined;
+      setActionError(msg ?? "Could not load slots.");
+      setSlots([]);
+    }
+  };
+
+  const submitFilters = async () => {
+    if (!siteId || !serviceId || !providerId || !date) {
+      setActionError("Please select site, service, doctor and date.");
+      return;
+    }
+    await loadSlots();
   };
 
   return (
@@ -104,63 +160,91 @@ export default function PatientDoctors() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Doctors, Services & Slots</h1>
         <p className="text-sm text-muted-foreground mt-1">Select in sequence: Site → Service → Doctor → Date, then view slots</p>
+        {actionError && <p className="text-sm text-destructive mt-2">{actionError}</p>}
       </div>
 
-      <div className="bg-card rounded-xl border border-border p-4 mb-4 grid grid-cols-1 md:grid-cols-5 gap-2">
-        <select
-          value={siteId}
-          onChange={(e) => {
-            const val = e.target.value;
-            setSiteId(val);
-            void refreshDoctorOptions(val, serviceId, date);
-          }}
-          className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-        >
-          <option value="">Select Site</option>
-          {siteOptions.map((s) => (
-            <option key={s.siteId} value={s.siteId}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={serviceId}
-          onChange={(e) => {
-            const val = e.target.value;
-            setServiceId(val);
-            void refreshDoctorOptions(siteId, val, date);
-          }}
-          className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-        >
-          <option value="">Select Service</option>
-          {activeServices.map((s) => (
-            <option key={s.serviceId} value={s.serviceId}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select value={providerId} onChange={(e) => setProviderId(e.target.value)} className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm">
-        <option value="">{loadingDoctors === true ? "Loading doctors..." : (doctorOptions.length === 0 ? "No doctors found" : "Select Doctor")}</option>
-          {doctorOptions.map((p) => (
-            <option key={p.providerId} value={p.providerId}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => {
-            const val = e.target.value;
-            setDate(val);
-            void refreshDoctorOptions(siteId, serviceId, val);
-          }}
-          className="px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
-        />
-        <button onClick={() => void loadSlots()} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm">
+      <form onSubmit={handleSubmit(submitFilters)} className="bg-card rounded-xl border border-border p-4 mb-4 grid grid-cols-1 md:grid-cols-5 gap-2">
+        <div>
+          <select
+            {...siteField}
+            value={siteId}
+            onChange={(e) => {
+              siteField.onChange(e);
+              const val = e.target.value;
+              setSiteId(val);
+              void refreshDoctorOptions(val, serviceId, date);
+            }}
+            className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+          >
+            <option value="">Select Site</option>
+            {siteOptions.map((s) => (
+              <option key={s.siteId} value={s.siteId}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          {errors.siteId && <p className="text-xs text-destructive mt-1">{errors.siteId.message}</p>}
+        </div>
+        <div>
+          <select
+            {...serviceField}
+            value={serviceId}
+            onChange={(e) => {
+              serviceField.onChange(e);
+              const val = e.target.value;
+              setServiceId(val);
+              void refreshDoctorOptions(siteId, val, date);
+            }}
+            className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+          >
+            <option value="">Select Service</option>
+            {activeServices.map((s) => (
+              <option key={s.serviceId} value={s.serviceId}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          {errors.serviceId && <p className="text-xs text-destructive mt-1">{errors.serviceId.message}</p>}
+        </div>
+        <div>
+          <select
+            {...providerField}
+            value={providerId}
+            onChange={(e) => {
+              providerField.onChange(e);
+              setProviderId(e.target.value);
+            }}
+            className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+          >
+            <option value="">{loadingDoctors === true ? "Loading doctors..." : (doctorOptions.length === 0 ? "No doctors found" : "Select Doctor")}</option>
+            {doctorOptions.map((p) => (
+              <option key={p.providerId} value={p.providerId}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {errors.providerId && <p className="text-xs text-destructive mt-1">{errors.providerId.message}</p>}
+        </div>
+        <div>
+          <input
+            type="date"
+            {...dateField}
+            min={new Date().toISOString().slice(0, 10)}
+            value={date}
+            onChange={(e) => {
+              dateField.onChange(e);
+              const val = e.target.value;
+              setDate(val);
+              void refreshDoctorOptions(siteId, serviceId, val);
+            }}
+            className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm"
+          />
+          {errors.date && <p className="text-xs text-destructive mt-1">{errors.date.message}</p>}
+        </div>
+        <button type="submit" className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm">
           Show Slots
         </button>
-      </div>
+      </form>
 
       <div className="bg-card rounded-xl border border-border p-4">
         <p className="text-sm font-medium text-foreground mb-3">Available Slots</p>

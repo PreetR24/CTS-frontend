@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { StatCard } from "../../components/StatCard";
-import { Calendar, Clock, FileText, Bell } from "lucide-react";
+import { Calendar, Clock, Bell } from "lucide-react";
 import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
 import { useNavigate } from "react-router-dom";
@@ -82,11 +82,11 @@ export default function PatientDashboard() {
           subtitle={nextAppointment ? `${nextAppointment.time}` : "No upcoming"}
         />
         <StatCard
-          title="Medical Records"
+          title="Total Appointments"
           value={appointments.length}
-          icon={FileText}
+          icon={Calendar}
           color="bg-[#c4b5e8]/20"
-          subtitle="From your appointment history"
+          subtitle="From your history"
         />
         <StatCard title="Reminders" value={unreadReminderCount} icon={Bell} color="bg-[#e8c9a9]/30" subtitle="Unread notifications" />
       </div>
@@ -128,9 +128,6 @@ export default function PatientDashboard() {
               </button>
               <button onClick={() => navigate("/patient/doctors")} className="w-full text-left px-3 py-2.5 rounded-lg bg-[#e8b8d4]/20 hover:bg-[#e8b8d4]/30 transition-colors">
                 <p className="text-sm font-medium text-foreground">View Doctors & Slots</p>
-              </button>
-              <button onClick={() => navigate("/patient/records")} className="w-full text-left px-3 py-2.5 rounded-lg bg-[#e8b8d4]/20 hover:bg-[#e8b8d4]/30 transition-colors">
-                <p className="text-sm font-medium text-foreground">View Records</p>
               </button>
             </div>
           </div>

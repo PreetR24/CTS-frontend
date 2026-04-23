@@ -40,3 +40,8 @@ export async function deleteAvailabilityBlock(blockId: number): Promise<void> {
   const res = await api.delete<ApiResponse<object>>(`/availability-blocks/${blockId}`);
   unwrapAxiosApiData(res);
 }
+
+export async function activateAvailabilityBlock(blockId: number): Promise<void> {
+  const res = await api.patch<ApiResponse<object>>(`/availability-blocks/${blockId}/activate`);
+  unwrapAxiosApiData(res);
+}

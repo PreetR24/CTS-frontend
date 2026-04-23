@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import { meApi } from "../../../api/authApi";
 import {
   cancelLeave,
@@ -11,7 +13,7 @@ import {
 } from "../../../api/operationsApi";
 import { createLeaveImpact } from "../../../api/operationsPlanningApi";
 
-type LeaveForm = {
+type LeaveFormValues = {
   leaveType: string;
   startDate: string;
   endDate: string;
@@ -26,12 +28,22 @@ export default function ProviderLeave() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [selectedImpacts, setSelectedImpacts] = useState<Array<{ impactId: number; status: string; impactType: string }>>([]);
-  const [form, setForm] = useState<LeaveForm>({
-    leaveType: "Vacation",
-    startDate: "",
-    endDate: "",
-    reason: "",
+  const [selectedLeaveMeta, setSelectedLeaveMeta] = useState<{
+    leaveType: string;
+    status: string;
+    startDate: string;
+    endDate: string;
+  } | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<LeaveFormValues>({
+    defaultValues: {
+      leaveType: "Vacation",
+      startDate: "",
+      endDate: "",
+      reason: "",
+    },
   });
 
   useEffect(() => {
@@ -70,51 +82,104 @@ export default function ProviderLeave() {
     impactedAppts: impactCountByLeave.get(leave.leaveId) ?? 0,
   }));
 
-  const handleSubmit = async () => {
-    if (!form.startDate || !form.endDate || !form.leaveType) return;
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (isAxiosError<{ message?: string }>(error)) return error.response?.data?.message ?? fallback;
+    if (error instanceof Error) return error.message;
+    return fallback;
+  };
+
+  const submitLeave = async (values: LeaveFormValues) => {
+    if (values.startDate < today) {
+      setActionError("Start date cannot be in the past.");
+      return;
+    }
+    if (values.endDate < values.startDate) {
+      setActionError("End date cannot be earlier than start date.");
+      return;
+    }
     setIsSubmitting(true);
     setSubmitMessage(null);
+    setActionError(null);
     try {
       const created = await submitLeaveRequest({
-        leaveType: form.leaveType,
-        startDate: form.startDate,
-        endDate: form.endDate,
-        reason: form.reason || undefined,
+        leaveType: values.leaveType,
+        startDate: values.startDate,
+        endDate: values.endDate,
+        reason: values.reason || undefined,
       });
       try {
         await createLeaveImpact({
           leaveId: created.leaveId,
           impactType: "ProviderLeave",
           impactJson: JSON.stringify({
-            leaveType: form.leaveType,
-            startDate: form.startDate,
-            endDate: form.endDate,
-            reason: form.reason || null,
+            leaveType: values.leaveType,
+            startDate: values.startDate,
+            endDate: values.endDate,
+            reason: values.reason || null,
           }),
         });
       } catch {
         // Keep leave submission successful even if impact creation fails.
       }
       setLeaves((prev) => [created, ...prev]);
+      const impactsForCreated = await getLeaveImpacts(created.leaveId).catch(() => []);
+      setImpactCountByLeave((prev) => {
+        const next = new Map(prev);
+        next.set(created.leaveId, impactsForCreated.length);
+        return next;
+      });
       setShowModal(false);
       setSubmitMessage("Leave request submitted.");
-      setForm({
+      reset({
         leaveType: "Vacation",
         startDate: "",
         endDate: "",
         reason: "",
       });
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not submit leave request."));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleCancel = async (leaveId: number) => {
+    const current = leaves.find((l) => l.leaveId === leaveId);
+    if (!current || current.status !== "Pending") {
+      setActionError("Only pending leave requests can be cancelled.");
+      return;
+    }
     try {
+      setActionError(null);
       const updated = await cancelLeave(leaveId);
       setLeaves((prev) => prev.map((l) => (l.leaveId === leaveId ? updated : l)));
-    } catch {
-      // leave existing row unchanged on backend rejection
+    } catch (error) {
+      setActionError(getErrorMessage(error, "Could not cancel leave request."));
+    }
+  };
+
+  const loadLeaveDetails = async (leaveId: number) => {
+    try {
+      setActionError(null);
+      const detail = await getLeaveRequestById(leaveId);
+      const impacts = await getLeaveImpacts(leaveId);
+      setSelectedImpacts(
+        impacts.map((i) => ({ impactId: i.impactId, status: i.status, impactType: i.impactType }))
+      );
+      setSelectedLeaveMeta({
+        leaveType: detail.leaveType,
+        status: detail.status,
+        startDate: detail.startDate,
+        endDate: detail.endDate,
+      });
+      setDetailMessage(
+        `Leave ${detail.leaveType} (${detail.status}) ${detail.startDate} to ${detail.endDate}, impacts: ${impacts.length}`
+      );
+    } catch (error) {
+      setSelectedImpacts([]);
+      setDetailMessage(null);
+      setSelectedLeaveMeta(null);
+      setActionError(getErrorMessage(error, "Unable to load leave detail right now."));
     }
   };
 
@@ -123,7 +188,7 @@ export default function ProviderLeave() {
       <div className="mb-6">
         <h1 className="text-xl font-medium text-foreground">Leave Requests</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your time-off requests</p>
-        {detailMessage && <p className="text-sm text-primary mt-2">{detailMessage}</p>}
+        {actionError && <p className="text-sm text-destructive mt-2">{actionError}</p>}
       </div>
 
       <div className="bg-card rounded-xl border border-border">
@@ -173,21 +238,7 @@ export default function ProviderLeave() {
                       </button>
                     )}
                     <button
-                      onClick={async () => {
-                        try {
-                          const detail = await getLeaveRequestById(leave.leaveId);
-                          const impacts = await getLeaveImpacts(leave.leaveId);
-                          setSelectedImpacts(
-                            impacts.map((i) => ({ impactId: i.impactId, status: i.status, impactType: i.impactType }))
-                          );
-                          setDetailMessage(
-                            `Leave ${detail.leaveType} (${detail.status}) ${detail.startDate} to ${detail.endDate}, impacts: ${impacts.length}`
-                          );
-                        } catch {
-                          setSelectedImpacts([]);
-                          setDetailMessage("Unable to load leave detail right now.");
-                        }
-                      }}
+                      onClick={() => void loadLeaveDetails(leave.leaveId)}
                       className="px-2.5 py-1 rounded-md text-xs border border-border hover:bg-secondary transition-colors"
                     >
                       Detail
@@ -195,6 +246,13 @@ export default function ProviderLeave() {
                   </td>
                 </tr>
               ))}
+              {leaveRows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-6 px-4 text-sm text-muted-foreground text-center">
+                    No leave requests found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -204,12 +262,11 @@ export default function ProviderLeave() {
         <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md">
             <h3 className="text-base font-medium text-foreground mb-4">Request Leave</h3>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSubmit(submitLeave)}>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Leave Type</label>
                 <select
-                  value={form.leaveType}
-                  onChange={(e) => setForm((prev) => ({ ...prev, leaveType: e.target.value }))}
+                  {...register("leaveType", { required: "Leave type is required." })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option>Vacation</option>
@@ -217,62 +274,97 @@ export default function ProviderLeave() {
                   <option>CME/Conference</option>
                   <option>Other</option>
                 </select>
+                {errors.leaveType && <p className="text-xs text-destructive mt-1">{errors.leaveType.message}</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Start Date</label>
                   <input
                     type="date"
-                    value={form.startDate}
-                    onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                    min={today}
+                    {...register("startDate", { required: "Start date is required." })}
                     className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
+                  {errors.startDate && <p className="text-xs text-destructive mt-1">{errors.startDate.message}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">End Date</label>
                   <input
                     type="date"
-                    value={form.endDate}
-                    onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))}
+                    min={today}
+                    {...register("endDate", { required: "End date is required." })}
                     className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
+                  {errors.endDate && <p className="text-xs text-destructive mt-1">{errors.endDate.message}</p>}
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Reason</label>
                 <textarea
                   rows={3}
-                  value={form.reason}
-                  onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
+                  {...register("reason")}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                   placeholder="Optional notes..."
                 />
+                {errors.reason && <p className="text-xs text-destructive mt-1">{errors.reason.message}</p>}
               </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors">Cancel</button>
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm disabled:opacity-60"
-              >
-                {isSubmitting ? "Submitting..." : "Submit Request"}
-              </button>
-            </div>
+              <div className="flex gap-3 mt-6">
+                <button type="button" onClick={() => setShowModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-secondary transition-colors">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm disabled:opacity-60"
+                >
+                  {isSubmitting ? "Submitting..." : "Submit Request"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
       {submitMessage && <p className="mt-3 text-sm text-emerald-600">{submitMessage}</p>}
-      {selectedImpacts.length > 0 && (
+      {selectedLeaveMeta && (
         <div className="mt-4 bg-card rounded-xl border border-border p-4">
-          <p className="text-sm font-medium text-foreground mb-2">Leave Impact Status</p>
-          <div className="space-y-1">
-            {selectedImpacts.map((impact) => (
-              <div key={impact.impactId} className="text-xs text-muted-foreground">
-                #{impact.impactId} - {impact.impactType} - {impact.status}
-              </div>
-            ))}
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Leave Impact Details</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {selectedLeaveMeta.leaveType}: {selectedLeaveMeta.startDate} to {selectedLeaveMeta.endDate}
+              </p>
+            </div>
+            <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-[#7ba3c0]/20 text-foreground">
+              Leave {selectedLeaveMeta.status}
+            </span>
           </div>
+          {selectedImpacts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No impacted appointments for this leave.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {selectedImpacts.map((impact) => (
+                <div key={impact.impactId} className="rounded-lg border border-border p-3 bg-secondary/20">
+                  <p className="text-xs text-muted-foreground">Impact #{impact.impactId}</p>
+                  <p className="text-sm text-foreground mt-1">{impact.impactType}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Status</p>
+                  <p className="text-sm font-medium text-foreground">{impact.status}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => {
+              setSelectedLeaveMeta(null);
+              setSelectedImpacts([]);
+              setDetailMessage(null);
+            }}
+            className="mt-4 w-full px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+          >
+            Close Impact Details
+          </button>
+        </div>
+      )}
+      {detailMessage && !selectedLeaveMeta && (
+        <div className="mt-3 bg-card rounded-xl border border-border p-3">
+          <p className="text-sm text-muted-foreground">{detailMessage}</p>
         </div>
       )}
     </div>
