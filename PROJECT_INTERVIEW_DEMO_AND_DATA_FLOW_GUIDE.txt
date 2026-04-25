@@ -1,0 +1,708 @@
+CARE SCHEDULE - INTERVIEW DEMO + DATA FLOW GUIDE (BEGINNER FRIENDLY)
+
+Purpose of this file
+- Help a totally new person test and explain the whole project.
+- Give a clean interview demo sequence with talking points.
+- Explain how data moves from frontend -> backend -> database and back.
+
+--------------------------------------------------------------------------------
+0) QUICK PROJECT OVERVIEW (SAY THIS IN INTERVIEW)
+--------------------------------------------------------------------------------
+This is a role-based healthcare scheduling and operations system with six portals:
+- Admin
+- Provider
+- Patient
+- FrontDesk
+- Nurse
+- Operations
+
+Core capabilities:
+- Master data management (sites, rooms, services, users, providers, holidays, rules)
+- Appointment lifecycle (book -> check-in -> room assignment -> care -> completion -> outcome)
+- Workforce planning (roster, on-call, leave impacts)
+- Role-based authorization and audit traceability
+- Soft-deactivation and active-only business validations
+
+Architecture summary:
+- Frontend: React + TypeScript + API modules per domain.
+- Backend: ASP.NET Core Web API + services/repositories.
+- Database: SQL Server via EF Core.
+- Security: JWT auth + role checks on controllers/services.
+
+--------------------------------------------------------------------------------
+1) DEMO PREPARATION CHECKLIST (5-7 MIN)
+--------------------------------------------------------------------------------
+1. Start backend API:
+   - Run backend project (`dotnet run`).
+2. Start frontend app:
+   - Run frontend (`npm run dev`).
+3. Open browser + DevTools Network tab:
+   - Keep it open during demo to show real API calls and status codes.
+4. Confirm seed/demo users exist for all roles:
+   - Admin, Provider, Patient, FrontDesk, Nurse, Operations.
+5. Confirm DB has demo data:
+   - Sites, rooms, services, providers, templates, appointments, leave samples.
+
+Interview line:
+"I keep Network tab open so I can show not only UI behavior, but also exact API interactions and backend validations."
+
+--------------------------------------------------------------------------------
+2) ROLE-BASED LOGIN + ROUTING (SHOW FIRST)
+--------------------------------------------------------------------------------
+What to do:
+1. Login as each role one by one.
+2. Show redirection to role dashboard.
+3. Open one unauthorized route manually in URL and show it is blocked.
+
+What to speak:
+- "Routing guard is frontend + backend both. Frontend improves UX; backend is the real security boundary."
+- "Even if someone manually calls a forbidden API, backend returns 403."
+
+Data flow:
+1. Frontend sends login credentials.
+2. Backend validates user and returns JWT + role claims.
+3. Frontend stores token and attaches it to every API request.
+4. Backend middleware + `[Authorize(Roles=...)]` enforce role access.
+
+--------------------------------------------------------------------------------
+3) ADMIN FLOW (MASTER DATA + CONTROL CENTER)
+--------------------------------------------------------------------------------
+Goal to show:
+- Admin configures the platform and governance data.
+
+Step-by-step:
+1. Sites + Rooms
+   - Create site, edit site, deactivate site.
+   - Create room mapped to site, edit, deactivate.
+   - Try deactivating a site that is referenced by active records; show meaningful backend error message.
+
+2. Services
+   - Create/edit/deactivate service.
+   - Show active/deactivated filter behavior.
+
+3. Users + Providers
+   - Create users with phone/email.
+   - Show profile edit restrictions (sensitive fields protected).
+   - Show provider entries and editable provider-specific fields.
+
+4. Holidays + Config
+   - Create holiday for one site and "all sites" flow where applicable.
+   - Filter holidays by month/site.
+   - Add/update capacity and SLA/blackout rules.
+
+5. Audit
+   - Show audit list and search behavior.
+   - Trigger one action (like edit/deactivate) and verify it appears in audit.
+
+What to speak:
+- "Admin is responsible for platform readiness, not patient-level execution."
+- "Deactivation is soft-state driven; records are usually not hard deleted."
+
+Data flow insight:
+- Admin forms -> API payload -> Service validation -> Repository SaveChanges -> Audit log entry -> response -> UI refresh.
+
+--------------------------------------------------------------------------------
+4) PROVIDER FLOW (CLINICAL OPERATION LAYER)
+--------------------------------------------------------------------------------
+Goal to show:
+- Provider controls availability, slot generation, patient appointments, outcome recording.
+
+Step-by-step:
+1. Availability Templates
+   - Create template for weekday + time range.
+   - Try duplicate/overlap edge case if blocked by backend rules.
+
+2. Availability Blocks
+   - Create block for future date.
+   - Try past-date block (must fail with validation error).
+   - Deactivate/reactivate block and verify state change.
+
+3. Generate Slots
+   - Generate slots from template.
+   - Verify blocked time does NOT generate slots.
+   - Show acknowledgement message after successful generation.
+
+4. Appointments
+   - Open booked appointment, update status as per allowed transitions.
+   - Confirm "Add Outcome" visible only when appointment is Completed.
+   - Add outcome and verify outcome shown in UI (button removed after outcome exists).
+
+5. Leave Requests
+   - Create leave for future date range.
+   - Show impact rows/statuses and explain acceptance dependency.
+
+What to speak:
+- "Provider flow protects clinical correctness: no past blocks, no outcomes before completion, and block-aware slot generation."
+
+Data flow insight:
+- Template/block data + slot generator service + appointment status machine + outcome endpoint.
+- Guardrails exist in both frontend validation and backend business rules.
+
+--------------------------------------------------------------------------------
+5) PATIENT FLOW (SELF-SERVICE BOOKING EXPERIENCE)
+--------------------------------------------------------------------------------
+Goal to show:
+- Patient can discover, book, manage, and track outcomes safely.
+
+Step-by-step:
+1. Profile
+   - Open header/profile modal and edit allowed fields.
+
+2. Book Appointment (dependent sequence)
+   - Select site -> service -> doctor -> date -> slot.
+   - Confirm dependent dropdown behavior.
+   - Book appointment and verify it appears in appointment list.
+
+3. Appointments page
+   - Apply status filter and date filter.
+   - For completed appointment with outcome, show outcome in UI.
+   - Use cancel/reschedule if allowed by status.
+
+4. Dashboard
+   - Verify real data (appointments-first metrics/cards).
+
+What to speak:
+- "Patient pages hide internal IDs and expose only user-facing data."
+- "Booking has dependency-driven filtering to avoid invalid combinations."
+
+Data flow insight:
+- Patient selects dependencies -> frontend calls filtered APIs -> final booking API writes appointment -> subsequent queries reflect updated state.
+
+--------------------------------------------------------------------------------
+6) FRONTDESK FLOW (ARRIVAL + CHECK-IN + ROOM ASSIGNMENT)
+--------------------------------------------------------------------------------
+Goal to show:
+- FrontDesk handles operational intake and room assignment.
+
+Step-by-step:
+1. Booking page
+   - Create appointment with required inputs.
+   - Try past date/time booking (must be blocked).
+
+2. Waitlist page
+   - Add waitlist entry.
+   - Use "Book Slot" continuation flow and verify redirect back to booking with prefilled context.
+   - Remove waitlist entry and verify update.
+   - Use search filter.
+
+3. Check-In page
+   - Check in booked patient.
+   - Verify token generation acknowledgement and token visibility in queue.
+   - Use search filter.
+
+4. Queue page
+   - Filter by status/provider/search.
+   - Assign room.
+   - Verify room assignment reflected in check-in + appointment state.
+   - Ensure same room/time conflict is blocked by backend.
+
+What to speak:
+- "FrontDesk owns appointment intake + check-in + room assignment, while clinical queue progression is handled by Nurse/Provider."
+
+Data flow insight:
+- Check-in API creates check-in row + token.
+- Assign-room API validates room conflict (appointments + active resource holds), then updates check-in and appointment linkage.
+
+--------------------------------------------------------------------------------
+7) NURSE FLOW (CARE PIPELINE CONTINUATION)
+--------------------------------------------------------------------------------
+Goal to show:
+- Nurse handles assigned schedule and in-clinic progression.
+
+Step-by-step:
+1. My Schedule
+   - Show roster-based schedule for logged-in nurse.
+   - Default date filter to today.
+
+2. Patient Care / Queue continuation
+   - Move patients through allowed statuses only.
+   - Show filter by appointment status for easier handling.
+
+3. Profile
+   - Open/edit nurse own profile.
+
+What to speak:
+- "Nurse role continues the pipeline started by FrontDesk; role permissions prevent cross-role misuse."
+
+Data flow insight:
+- Schedule and queue APIs are scoped to authenticated nurse identity and authorized transitions.
+
+--------------------------------------------------------------------------------
+8) OPERATIONS FLOW (WORKFORCE + CONTINUITY)
+--------------------------------------------------------------------------------
+Goal to show:
+- Operations manages roster planning, on-call coverage, and leave impact resolution.
+
+Step-by-step:
+1. Roster
+   - Create/edit shift templates.
+   - Assign template to Nurse/FrontDesk users.
+   - Replace assignment with same-role replacement.
+   - Verify no duplicate assignment for same user/template/date.
+   - Verify weekly schedule count correctness.
+
+2. On-Call
+   - Create on-call record (future date only).
+   - Edit with endTime > startTime validation.
+   - Backup nurse optional handling.
+
+3. Leave Management
+   - View leave impacts.
+   - Resolve impacts, then approve leave.
+   - Show that unresolved impacts block approval.
+
+4. Staffing/Analytics
+   - Show filtered operational insights and nurse workload views.
+
+What to speak:
+- "Operations protects staffing continuity with validations around dates, duplicates, and impact resolution before approval."
+
+Data flow insight:
+- Roster + on-call + leave impact services combine scheduling and operational integrity checks before persistence.
+
+--------------------------------------------------------------------------------
+9) END-TO-END PATIENT JOURNEY (MOST IMPORTANT DEMO STORY)
+--------------------------------------------------------------------------------
+Use this as your final interview narrative:
+
+1. Admin configures master data (site/room/service/provider/user).
+2. Provider sets template and availability, blocks unavailable time, generates slots.
+3. Patient (or FrontDesk) books appointment.
+4. FrontDesk checks in patient and receives check-in token.
+5. FrontDesk assigns room (backend conflict checks enforce exclusivity).
+6. Nurse progresses patient through in-clinic flow.
+7. Provider completes consultation and records outcome.
+8. Operations ensures roster/on-call/leave continuity around staffing.
+9. Admin audits events and governance logs.
+
+One-line explanation:
+"The system connects clinical scheduling, on-ground operations, and governance in one lifecycle."
+
+--------------------------------------------------------------------------------
+10) INVALID-FIRST TESTING SCRIPT (INTERVIEW VALUE BOOSTER)
+--------------------------------------------------------------------------------
+For each module, show at least one invalid test:
+- Required field empty.
+- Past date/time where future-only is required.
+- Duplicate creation attempt.
+- Role unauthorized action.
+- Status transition not allowed.
+- Deactivation blocked due to dependency.
+- Room conflict for same slot.
+
+What to speak:
+- "I validate happy path and failure path equally. Strong systems are proven by error handling, not only by successful clicks."
+
+--------------------------------------------------------------------------------
+11) HOW TO EXPLAIN DATA FLOW CLEARLY (SIMPLE TEMPLATE)
+--------------------------------------------------------------------------------
+Use this sentence pattern in interview for any feature:
+
+1. "User action in UI triggers an API method from `src/api/*` module."
+2. "Controller receives request and role authorization is enforced."
+3. "Service layer applies business rules and data integrity checks."
+4. "Repository persists via EF Core to SQL Server."
+5. "Response returns standardized message/data."
+6. "Frontend updates state and re-renders list/cards."
+
+Use this once with a real example:
+- Example: FrontDesk check-in -> `createCheckIn` API -> `CheckInsController` -> `CheckInService.CheckIn` -> `CheckIns` table insert + token generation -> UI shows token and status.
+
+--------------------------------------------------------------------------------
+12) FINAL INTERVIEW TALKING POINTS (MEMORIZE THESE)
+--------------------------------------------------------------------------------
+1. Role-based boundaries are strict in backend (security by backend, UX by frontend).
+2. Active-only validations prevent linking inactive entities.
+3. Soft deactivation is used for safe governance and auditability.
+4. Operational conflicts are blocked (room conflicts, duplicates, invalid transitions).
+5. Complex workflows are split cleanly across roles (Admin, Provider, FrontDesk, Nurse, Operations, Patient).
+6. Every major module has filters/search and validation-first forms.
+7. Error messages are surfaced clearly from backend to UI.
+
+--------------------------------------------------------------------------------
+13) DEMO EXECUTION ORDER (RECOMMENDED)
+--------------------------------------------------------------------------------
+1. Login/routing/security quick proof.
+2. Admin setup.
+3. Provider availability and slots.
+4. Patient booking.
+5. FrontDesk check-in + token + room assign.
+6. Nurse progression.
+7. Provider completion + outcome.
+8. Operations roster/leave/on-call.
+9. Admin audit.
+10. Invalid-case showcase (2-3 strongest cases).
+
+--------------------------------------------------------------------------------
+14) QUICK CLOSING SCRIPT
+--------------------------------------------------------------------------------
+"This project demonstrates full-stack healthcare workflow orchestration: role-based secure APIs, validated workflows, and operational continuity. I can trace every important UI action to backend service logic and database impact, and I have also tested negative cases to verify robust behavior."
+
+================================================================================
+DETAILED APPENDIX A - FRONTEND TO BACKEND DATA FLOW (TECHNICAL DEEP DIVE)
+================================================================================
+
+A1) FRONTEND LAYER BREAKDOWN
+- Routing/Layouts:
+  - Each role has dedicated route segments and layout wrappers.
+  - Unauthorized routes are blocked in UI, but backend remains final authority.
+- Page components:
+  - Each page fetches data through `src/api/*` modules.
+  - UI keeps local state for filters/search/forms and renders tables/cards.
+- API modules:
+  - Encapsulate axios calls, DTO types, and response unwrapping.
+  - Keep endpoint paths and payload formatting out of page files.
+
+Interview line:
+"I separated page concerns from API concerns, so UI components stay readable and backend contracts stay centralized."
+
+A2) BACKEND LAYER BREAKDOWN
+- Controllers:
+  - Expose HTTP endpoints and role-based authorization attributes.
+  - Receive DTOs and return standardized API responses.
+- Services:
+  - Main business-rule engine.
+  - Performs validation and orchestration across repositories.
+- Repositories:
+  - Data access against EF Core context.
+  - Keep SQL/data concerns isolated from service logic.
+- Database:
+  - SQL Server schema with normalized domain entities.
+  - Entity relationships enforce referential integrity.
+
+Interview line:
+"Controller = transport/security, Service = business policy, Repository = persistence."
+
+A3) STANDARD REQUEST LIFE CYCLE (USE THIS TEMPLATE LIVE)
+1. User action:
+   - click button / submit form / open page
+2. Frontend validation:
+   - required checks, date/time guards, field-level constraints
+3. API call:
+   - axios request from domain API file with JWT header
+4. Backend authorization:
+   - role validation by `[Authorize]`
+5. Business validation:
+   - service checks status constraints, active-only references, conflicts
+6. Persistence:
+   - repository save/update in SQL Server
+7. Response:
+   - backend message + data DTO
+8. UI state update:
+   - success notice, table refresh, or inline error rendering
+
+================================================================================
+DETAILED APPENDIX B - ROLE-WISE DETAILED DEMO SCRIPT (SPEAK + CLICK GUIDE)
+================================================================================
+
+B1) ADMIN - FULL NARRATED WALKTHROUGH
+What to click:
+1. Login as Admin.
+2. Open Sites page:
+   - create a new site with complete fields
+   - edit site details
+   - deactivate one site
+3. Open Rooms page:
+   - create room under active site
+   - edit room type/capacity
+   - deactivate room
+4. Open Services:
+   - create/edit/deactivate service
+5. Open Users:
+   - create user with phone and email
+   - edit user allowed profile fields
+6. Open Providers:
+   - verify provider mapping and editable metadata
+7. Open Holidays:
+   - create holiday with site scope
+   - filter by month/site
+8. Open Config:
+   - capacity rules CRUD
+   - SLA rules CRUD
+   - blackout rules CRUD
+9. Open Audit:
+   - filter and verify newly created logs
+
+What to say:
+- "Admin configures foundational data consumed by all operational roles."
+- "Soft-deactivation keeps historical integrity while controlling active records."
+- "Audit provides compliance trace for major changes."
+
+Must-show negative cases:
+- Deactivate site referenced by active records -> blocked with reason.
+- Duplicate config rule -> backend validation error surfaced in UI.
+
+B2) PROVIDER - FULL NARRATED WALKTHROUGH
+What to click:
+1. Login as Provider.
+2. Availability page:
+   - create template (weekday/time/site)
+   - create block on future date
+   - attempt block on past date (expect rejection)
+3. Generate slots:
+   - run generation
+   - verify success acknowledgement
+   - verify blocked interval did not produce slots
+4. Provider service mapping:
+   - add service from dropdown
+   - verify duplicate mapping rejected
+5. Appointments page:
+   - open details
+   - mark appointment completed where allowed
+   - add outcome only after completed
+   - verify outcome shown and action hidden after save
+6. Leave page:
+   - submit leave
+   - inspect leave impacts and statuses
+
+What to say:
+- "Provider flow enforces clinical sequence integrity."
+- "No outcome before completion, and blocked time never becomes bookable inventory."
+
+Must-show negative cases:
+- Attempt outcome before completion -> blocked.
+- Attempt duplicate template overlap scenario (if backend policy blocks) -> error visible.
+
+B3) PATIENT - FULL NARRATED WALKTHROUGH
+What to click:
+1. Login as Patient.
+2. Profile:
+   - open top-right profile
+   - edit basic fields and save
+3. Book appointment:
+   - select site -> service -> doctor -> date -> slot
+   - submit booking
+4. Appointments:
+   - filter by status
+   - filter by date
+   - view completed appointment outcome (if exists)
+   - test cancel/reschedule path where allowed
+
+What to say:
+- "Booking is dependency-driven, so users only see valid combinations."
+- "Patient UI shows meaningful care data but hides internal system IDs."
+
+Must-show negative cases:
+- Try booking with invalid/past slot -> blocked.
+- Trigger missing required field -> inline validation + no save.
+
+B4) FRONTDESK - FULL NARRATED WALKTHROUGH
+What to click:
+1. Login as FrontDesk.
+2. Booking page:
+   - create appointment using valid future slot
+3. Waitlist page:
+   - search/filter records
+   - create/continue booking from waitlist
+   - verify redirect carries waitlist context
+4. Check-In page:
+   - search patient
+   - click check-in
+   - verify generated token acknowledgement
+5. Queue page:
+   - filter by status/provider/search
+   - assign room
+   - verify status and room chips update
+   - verify token shown from backend check-in record
+
+What to say:
+- "FrontDesk handles operational intake and room allocation, not clinical closure."
+- "Room assignment includes conflict checks against overlapping appointments and active holds."
+
+Must-show negative cases:
+- Check-in already checked-in appointment -> blocked.
+- Assign already occupied room in same slot -> blocked with clear error.
+
+B5) NURSE - FULL NARRATED WALKTHROUGH
+What to click:
+1. Login as Nurse.
+2. Schedule page:
+   - verify own assignment list with today default filter
+3. Patient care page:
+   - filter by status
+   - move valid transitions in queue/care flow
+4. Profile edit:
+   - update allowed fields
+
+What to say:
+- "Nurse continues visit workflow after FrontDesk stages."
+- "Data shown is role-scoped to assigned responsibilities."
+
+Must-show negative cases:
+- Attempt unauthorized endpoint manually -> 403.
+- Invalid status transition -> backend guard message.
+
+B6) OPERATIONS - FULL NARRATED WALKTHROUGH
+What to click:
+1. Login as Operations.
+2. Roster page:
+   - create shift template(s)
+   - assign template to Nurse/FrontDesk
+   - edit assignment replacement with role-safe options
+   - verify weekly schedule counts
+3. Leave page:
+   - inspect impact details
+   - resolve impacts
+   - approve leave only after resolution
+4. On-Call page:
+   - create future on-call
+   - edit with backup optional
+   - validate endTime > startTime
+5. Staffing/Analytics:
+   - apply filters and show utilization-oriented view
+
+What to say:
+- "Operations protects service continuity via staffing and impact governance."
+- "Approval workflow is dependency-aware: unresolved impacts prevent leave approval."
+
+Must-show negative cases:
+- Duplicate assignment same template/date/user -> blocked.
+- On-call for past date -> blocked.
+
+================================================================================
+DETAILED APPENDIX C - DOMAIN ENTITIES AND WHY THEY MATTER
+================================================================================
+
+C1) Core master entities
+- Site: location anchor for room, provider, scheduling context.
+- Room: physical resource for appointment execution.
+- Service: care offering type used across booking and provider mapping.
+- User: identity and role root for all actors.
+- Provider: clinical identity bound to a user.
+
+C2) Scheduling entities
+- Availability template: recurring weekly pattern.
+- Availability block: one-off unavailability override.
+- Slot: generated bookable inventory.
+- Appointment: booked care event lifecycle record.
+- Outcome: final clinical result attached to completed appointment.
+
+C3) Operations entities
+- Shift template: standard shift pattern.
+- Roster assignment: who is assigned to which shift/day.
+- On-call: backup emergency staffing.
+- Leave request + leave impacts: continuity control.
+
+C4) Frontdesk/nurse pipeline entities
+- CheckIn: arrival event with token and current queue stage.
+- Resource hold: prevents room double-booking for overlapping intervals.
+
+Interview line:
+"The data model mirrors real hospital flow: planning entities feed execution entities, and execution writes back operational outcomes."
+
+================================================================================
+DETAILED APPENDIX D - API CONTRACT AND ERROR-HANDLING STRATEGY
+================================================================================
+
+D1) Contract style
+- Client sends typed DTO payloads.
+- Backend returns wrapped response with `data` and `message`.
+- UI shows backend message directly where useful.
+
+D2) Validation layers
+- UI validation:
+  - improves user feedback speed
+  - prevents obviously invalid calls
+- Backend validation:
+  - final source of truth
+  - protects against malicious/manual calls
+
+D3) Error categories to explain
+- 400 Bad Request: business/validation rule failures.
+- 401 Unauthorized: missing/invalid token.
+- 403 Forbidden: role does not have access.
+- 404 Not Found: missing resource (except designed nullable patterns).
+- 409-like conflict behavior (if returned as validation message): duplicates/resource conflicts.
+
+D4) Interview line
+"We intentionally duplicate critical guards in backend even if frontend validates, because frontend is a convenience layer, not a trust boundary."
+
+================================================================================
+DETAILED APPENDIX E - DETAILED INVALID-FIRST TEST MATRIX
+================================================================================
+
+E1) Cross-portal mandatory invalid tests
+1. Submit empty forms.
+2. Invalid date/time ranges (past dates, end <= start).
+3. Duplicate create flows.
+4. Inactive reference linking attempts.
+5. Unauthorized cross-role endpoint calls.
+6. Illegal status transitions.
+7. Concurrent/conflict scenarios (room/assignment overlaps).
+
+E2) Expected quality criteria
+- Clear backend reason is shown in UI.
+- No silent failures.
+- No partial write (state consistency maintained).
+- Table/list refresh reflects DB truth.
+
+E3) Demonstration technique
+- For each role, show one success + one failure case.
+- Keep Network tab visible and point to status + response message.
+
+================================================================================
+DETAILED APPENDIX F - EXACT INTERVIEW SPEAKING STRUCTURE (10-15 MIN DEMO)
+================================================================================
+
+F1) Opening (1 minute)
+"I will show this system as a full patient journey across six roles and explain the exact data flow from UI to database for each critical step."
+
+F2) Middle (8-10 minutes)
+- Admin setup (foundation)
+- Provider schedule and slot generation (supply)
+- Patient/FrontDesk booking and check-in (demand + intake)
+- Nurse/Provider completion + outcome (clinical closure)
+- Operations staffing governance (continuity)
+
+F3) Technical deep-dive (2-3 minutes)
+- Show one API request from Network tab.
+- Explain controller/service/repository path.
+- Explain one validation rule and one conflict-prevention rule.
+
+F4) Closing (1 minute)
+"This project is strong because it combines role-based security, operational correctness, and user-friendly error handling across the entire care lifecycle."
+
+================================================================================
+DETAILED APPENDIX G - DEMO TROUBLESHOOTING PLAYBOOK
+================================================================================
+
+If frontend list appears empty:
+1. Check Network tab for status code.
+2. Confirm correct role user is logged in.
+3. Validate filters/search are not over-restrictive.
+4. Check if test data exists for selected date/site.
+
+If action fails with 400:
+1. Read backend message in response.
+2. Verify business preconditions (status/date/dependency).
+3. Retry with valid entity state.
+
+If action fails with 403:
+1. Verify role.
+2. Verify endpoint access is intended for that role.
+3. Re-login if token is stale.
+
+If compile/run issue due to dll lock:
+1. Stop old API process.
+2. Restart backend.
+3. Retry build/run.
+
+================================================================================
+DETAILED APPENDIX H - WHAT MAKES THIS PROJECT INTERVIEW-WORTHY
+================================================================================
+
+1) Real-world complexity:
+- Multi-role workflows with strict boundaries.
+
+2) Strong workflow integrity:
+- Status and dependency validations across scheduling and care.
+
+3) Defensive backend design:
+- Role guards + business guards + conflict checks.
+
+4) Full lifecycle visibility:
+- From configuration to outcome to audit.
+
+5) Practical engineering quality:
+- DTO contracts, modular API client files, user-facing validation messages, and operational filters.
+
