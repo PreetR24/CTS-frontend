@@ -1,0 +1,513 @@
+CARE SCHEDULE - MASTER CONCEPT LIST (FRONTEND + BACKEND + DESIGN)
+
+Scope note
+- This list is generated from the current codebase and includes major + minor concepts used in both frontend and backend.
+- For each concept, "Where used" points to concrete files/modules so you can explain in interview.
+
+================================================================================
+A) FRONTEND CONCEPTS (REACT + TYPESCRIPT)
+================================================================================
+
+1) Single Page Application (SPA)
+- Concept: One React app with route-based pages instead of full-page reload.
+- Where used:
+  - `frontend/src/app/App.tsx`
+  - `frontend/src/app/routes/routes.ts`
+
+2) Client-side Routing
+- Concept: URL path to component mapping using React Router.
+- Where used:
+  - `frontend/src/app/routes/routes.ts`
+  - Role guards: `frontend/src/app/routes/*Guard.tsx`
+
+3) Nested Layout Routing
+- Concept: Shared layout per role with nested pages.
+- Where used:
+  - `frontend/src/app/layouts/AdminLayout.tsx`
+  - `frontend/src/app/layouts/ProviderLayout.tsx`
+  - `frontend/src/app/layouts/PatientLayout.tsx`
+  - `frontend/src/app/layouts/FrontDeskLayout.tsx`
+  - `frontend/src/app/layouts/NurseLayout.tsx`
+  - `frontend/src/app/layouts/OperationsLayout.tsx`
+
+4) Route Guards / Protected Routes
+- Concept: Prevent unauthorized route access in UI.
+- Where used:
+  - `frontend/src/app/routes/AuthGuard.tsx`
+  - `frontend/src/app/routes/AdminGuard.tsx`
+  - `frontend/src/app/routes/ProviderGuard.tsx`
+  - `frontend/src/app/routes/PatientGuard.tsx`
+  - `frontend/src/app/routes/FrontDeskGuard.tsx`
+  - `frontend/src/app/routes/NurseGuard.tsx`
+  - `frontend/src/app/routes/OperationsGuard.tsx`
+
+5) Role-based UI Navigation
+- Concept: Different pages and sidebars by role.
+- Where used:
+  - `frontend/src/app/components/Sidebar.tsx`
+  - Layout route definitions in `frontend/src/app/routes/routes.ts`
+
+6) React Functional Components
+- Concept: Components as functions with hooks.
+- Where used:
+  - All pages under `frontend/src/app/pages/**`
+
+7) React Hooks - State Management
+- Concept: `useState` for local state.
+- Where used:
+  - Example: `frontend/src/app/pages/frontdesk/Queue.tsx`
+  - Example: `frontend/src/app/pages/operations/Roster.tsx`
+
+8) React Hooks - Side Effects
+- Concept: `useEffect` for API fetch and lifecycle effects.
+- Where used:
+  - Example: `frontend/src/app/pages/frontdesk/CheckIn.tsx`
+  - Example: `frontend/src/app/pages/patient/Appointments.tsx`
+  - Example: `frontend/src/api/AuthContext.tsx`
+
+9) React Hooks - Memoization
+- Concept: `useMemo` for computed filtered/derived lists.
+- Where used:
+  - `frontend/src/app/pages/operations/Roster.tsx`
+  - `frontend/src/app/pages/operations/Leave.tsx`
+  - `frontend/src/app/pages/operations/OnCall.tsx`
+  - `frontend/src/app/pages/patient/Appointments.tsx`
+
+10) Context API (Global Auth State)
+- Concept: Shared auth state across app without prop drilling.
+- Where used:
+  - `frontend/src/api/AuthContext.tsx`
+
+11) TypeScript Type Safety
+- Concept: Interfaces/types for DTOs and form models.
+- Where used:
+  - `frontend/src/api/*.ts` (e.g., `outcomesApi.ts`, `operationsApi.ts`, `checkinsApi.ts`)
+  - Page-level local types (e.g., row/form types in pages)
+
+12) API Layer Abstraction
+- Concept: API calls centralized in `src/api`.
+- Where used:
+  - `frontend/src/api/appointmentsApi.ts`
+  - `frontend/src/api/checkinsApi.ts`
+  - `frontend/src/api/operationsApi.ts`
+  - `frontend/src/api/authApi.ts`
+  - etc.
+
+13) Axios HTTP Client
+- Concept: Reusable HTTP client for requests/responses.
+- Where used:
+  - `frontend/src/api/axios.ts`
+
+14) Axios Request Interceptor
+- Concept: Auto-attach JWT bearer token.
+- Where used:
+  - `frontend/src/api/axios.ts` (`api.interceptors.request`)
+
+15) Axios Response Interceptor (Global 401 Handling)
+- Concept: Handle auth failure globally.
+- Where used:
+  - `frontend/src/api/axios.ts` (`api.interceptors.response`)
+
+16) Local Storage Token Persistence
+- Concept: Store auth token for session continuity.
+- Where used:
+  - `frontend/src/api/axios.ts`
+  - `frontend/src/api/AuthContext.tsx`
+  - login/logout flows
+
+17) Form Handling with React Hook Form
+- Concept: Structured form state + validation.
+- Where used:
+  - `frontend/src/app/pages/operations/Roster.tsx`
+  - `frontend/src/app/pages/operations/OnCall.tsx`
+  - `frontend/src/app/pages/provider/Availability.tsx`
+  - `frontend/src/app/pages/provider/Leave.tsx`
+  - `frontend/src/app/pages/provider/Appointments.tsx`
+  - `frontend/src/app/pages/admin/*` forms
+  - `frontend/src/app/pages/patient/*` forms
+
+18) Client-side Validation
+- Concept: Required fields, date/time constraints, numeric rules.
+- Where used:
+  - `register(..., { required, min, validate })` usage in RHF pages
+  - date/time rules in roster, on-call, leave, booking flows
+
+19) Error Display from Backend Messages
+- Concept: Show API validation/business errors directly in UI.
+- Where used:
+  - `frontend/src/app/pages/frontdesk/Queue.tsx`
+  - `frontend/src/app/pages/frontdesk/Waitlist.tsx`
+  - `frontend/src/app/pages/operations/*`
+  - `frontend/src/app/pages/provider/*`
+
+20) Filtering + Search UX
+- Concept: In-page filters/search for data grids/cards.
+- Where used:
+  - FrontDesk: `CheckIn.tsx`, `Queue.tsx`, `Waitlist.tsx`
+  - Operations: `Leave.tsx`, `OnCall.tsx`, `Staffing.tsx`, `Analytics.tsx`, `Roster.tsx`
+  - Patient appointments filtering
+
+21) Conditional Rendering
+- Concept: Show/hide actions by status/role/data availability.
+- Where used:
+  - Provider appointments outcome actions
+  - FrontDesk queue action buttons by queue stage
+  - Empty-state messaging across pages
+
+22) Modal-driven Interaction
+- Concept: In-page modal forms for CRUD/edit operations.
+- Where used:
+  - `frontend/src/app/pages/operations/Roster.tsx`
+  - `frontend/src/app/pages/operations/OnCall.tsx`
+  - `frontend/src/app/pages/provider/Appointments.tsx`
+  - profile edit modals in header flows
+
+23) Data Visualization (Charts)
+- Concept: Dashboard charts for analytics/coverage.
+- Where used:
+  - Recharts in operations and dashboard pages
+  - dependency in `frontend/package.json` (`recharts`)
+
+24) Design System Utility Components
+- Concept: Shared UI component abstractions + styling consistency.
+- Where used:
+  - `frontend/src/app/components/**`
+  - `frontend/src/app/components/ui/**`
+
+25) Tailwind-based Styling
+- Concept: Utility-first CSS classes and component-level class composition.
+- Where used:
+  - All JSX files with utility class names
+  - dependencies: `tailwindcss`, `tailwind-merge`, `clsx`, `class-variance-authority`
+
+26) Iconography Library Usage
+- Concept: Consistent icon set.
+- Where used:
+  - `lucide-react` icons in nearly all pages/components
+
+27) Async Concurrency with Promise.all
+- Concept: Parallel API calls for faster page load.
+- Where used:
+  - Many pages, e.g. `frontdesk/CheckIn.tsx`, `frontdesk/Queue.tsx`, `operations/Dashboard.tsx`, etc.
+
+28) API Response Unwrapping Helpers
+- Concept: Normalize backend response shape.
+- Where used:
+  - `frontend/src/api/apiTypes.ts`
+  - calls like `unwrapAxiosApiData`, `unwrapAxiosApiList`, nullable unwrap patterns
+
+29) Date/Time Formatting
+- Concept: Human-readable date/time display and form controls.
+- Where used:
+  - Local helper functions in pages (e.g., `to12Hour`)
+  - HTML date/time inputs in forms
+
+30) Graceful Empty States / Fallback UI
+- Concept: “No data found” messaging instead of blank pages.
+- Where used:
+  - FrontDesk check-in, queue, waitlist
+  - multiple role pages with no-data rows/cards
+
+31) Backward Compatibility Route Alias
+- Concept: keeping both old and new role path (`/staff` and `/nurse`).
+- Where used:
+  - `frontend/src/app/routes/routes.ts`
+
+32) Build Tooling
+- Concept: Vite bundling and TypeScript checking.
+- Where used:
+  - `frontend/package.json` scripts (`dev`, `build`, `typecheck`)
+
+================================================================================
+B) BACKEND CONCEPTS (ASP.NET CORE + EF CORE + SQL SERVER)
+================================================================================
+
+1) Layered Architecture
+- Concept: API -> Services -> Repositories -> Infrastructure/DB.
+- Where used:
+  - Projects: `CareSchedule.API`, `Services`, `Repositories`, `CareSchedule.Infrastructure`, `Models`, `DTOs`
+
+2) Controller-based REST API
+- Concept: HTTP endpoints via ASP.NET controllers.
+- Where used:
+  - `backend/CareSchedule.API/Controllers/*.cs`
+
+3) Dependency Injection (DI)
+- Concept: Register interface-implementation pairs in container.
+- Where used:
+  - `backend/CareSchedule.API/Program.cs` (`builder.Services.AddScoped<...>`)
+
+4) Interface-driven Design
+- Concept: Contracts via interfaces for services/repos.
+- Where used:
+  - `backend/Services/Interface/*.cs`
+  - `backend/Repositories/Interface/*.cs`
+
+5) Repository Pattern
+- Concept: Data access abstraction per aggregate/domain.
+- Where used:
+  - `backend/Repositories/Interface/*Repository.cs`
+  - `backend/Repositories/Implementation/*Repository.cs`
+
+6) Service Layer / Business Logic Layer
+- Concept: Business rules centralized in services.
+- Where used:
+  - `backend/Services/Implementation/*.cs`
+  - e.g., `BookingService.cs`, `CheckInService.cs`, `RosterService.cs`, `LeaveService.cs`, `OutcomeService.cs`
+
+7) DTO Pattern
+- Concept: Request/response models decoupled from DB entities.
+- Where used:
+  - `backend/DTOs/*.cs`
+
+8) JWT Authentication
+- Concept: Token-based auth with issuer/audience/signature validation.
+- Where used:
+  - `backend/CareSchedule.API/Program.cs` (`AddAuthentication().AddJwtBearer(...)`)
+  - `backend/Services/Implementation/JwtTokenService.cs`
+
+9) Role-based Authorization
+- Concept: Endpoint-level role guards.
+- Where used:
+  - `[Authorize(Roles = "...")]` in controllers under `backend/CareSchedule.API/Controllers/*.cs`
+
+10) Global Exception Handling Middleware
+- Concept: Centralized conversion of exceptions -> standard API errors.
+- Where used:
+  - `backend/CareSchedule.API/Middleware/GlobalExceptionMiddleware.cs`
+  - registered in `Program.cs` with `UseMiddleware<GlobalExceptionMiddleware>()`
+
+11) Standardized API Response Wrapper
+- Concept: Unified success/failure response envelope.
+- Where used:
+  - `backend/CareSchedule.API/Contracts/ApiResponse.cs`
+  - returned by controllers
+
+12) HTTP Status Mapping Strategy
+- Concept: Different exception types mapped to 400/404/409/500 etc.
+- Where used:
+  - `GlobalExceptionMiddleware.cs`
+  - includes SQL exception code mapping (duplicate, FK constraint)
+
+13) Entity Framework Core ORM
+- Concept: ORM for data access with DbContext and entities.
+- Where used:
+  - `backend/CareSchedule.Infrastructure/Data/CareScheduleContext.cs`
+  - package references in csproj files
+
+14) SQL Server Provider
+- Concept: EF Core SQL Server database integration.
+- Where used:
+  - `UseSqlServer(connectionString)` in `Program.cs`
+  - `Microsoft.EntityFrameworkCore.SqlServer` package
+
+15) DbContext + DbSet Modeling
+- Concept: Database tables represented as `DbSet<T>`.
+- Where used:
+  - `CareScheduleContext.cs` (`DbSet<Appointment>`, `DbSet<CheckIn>`, etc.)
+
+16) Fluent API Entity Configuration
+- Concept: Keys, indexes, defaults, relationships via fluent model builder.
+- Where used:
+  - `CareScheduleContext.cs` (`OnModelCreating`)
+
+17) Relationship Mapping
+- Concept: One-to-one, one-to-many, foreign keys, delete behaviors.
+- Where used:
+  - `CareScheduleContext.cs` (e.g., Appointment-CheckIn, User-Provider, etc.)
+
+18) Database Indexing and Uniqueness Constraints
+- Concept: query performance + data integrity constraints.
+- Where used:
+  - `CareScheduleContext.cs` (`HasIndex`, `IsUnique`)
+  - e.g., unique check-in per appointment, unique provider-service mapping
+
+19) Soft Status Model
+- Concept: status-driven active/inactive/open/closed lifecycles.
+- Where used:
+  - Entities in `CareScheduleContext.cs` and business checks in services
+  - statuses like Active, Inactive, Pending, Completed, etc.
+
+20) Business Rule Validation
+- Concept: domain-specific guard checks.
+- Where used:
+  - `AvailabilityService.cs` (past-date block guards)
+  - `SlotGenerationService.cs` (block-aware slot generation)
+  - `OutcomeService.cs` (outcome only after completion)
+  - `CheckInService.cs` (status + room conflict checks)
+  - `RosterService.cs` (duplicate/role/date rules)
+  - `LeaveService.cs` (impact generation/resolution rules)
+
+21) State Machine-like Workflow Handling
+- Concept: controlled status transitions through operations.
+- Where used:
+  - Appointment/check-in/outcome flow in booking/check-in/outcome services
+  - leave and roster lifecycle statuses
+
+22) Audit Logging
+- Concept: record operational actions for traceability.
+- Where used:
+  - `AuditLogService.cs`
+  - audit repository and controllers
+  - service calls from check-in/other workflows
+
+23) Configuration Management
+- Concept: appsettings + local override + connection string validation.
+- Where used:
+  - `Program.cs` (`AddJsonFile("appsettings.Local.json", optional: true, ...)`)
+  - connection string runtime check
+
+24) CORS Policy
+- Concept: cross-origin access from frontend dev URL.
+- Where used:
+  - `Program.cs` (`AddCors`, `UseCors("AllowAll")`)
+
+25) OpenAPI / Swagger Contract Exposure
+- Concept: API metadata for development/testing.
+- Where used:
+  - `Program.cs` (`MapOpenApi()` in development)
+
+26) Background Service Hook (Scheduled Notifications)
+- Concept: Hosted service capability for periodic jobs.
+- Where used:
+  - `Program.cs` commented registration for reminder dispatcher
+  - `CareSchedule.API/BackgroundServices/ReminderDispatchService.cs`
+
+27) Claims-based Identity Helpers
+- Concept: helper methods to extract user/site claims from principal.
+- Where used:
+  - `CareSchedule.API/Extensions/ClaimsPrincipalExtensions.cs`
+
+28) DateOnly / TimeOnly Domain Modeling
+- Concept: precise date and time semantics for scheduling.
+- Where used:
+  - appointment, slot, roster, on-call, availability related models/services
+
+29) Conflict Detection Algorithms
+- Concept: overlapping interval checks for room/resource and schedule.
+- Where used:
+  - `CheckInService.cs` (room assignment conflicts)
+  - slot generation / availability overlap checks
+
+30) Nullability-aware C# Design
+- Concept: nullable reference types and optional returns.
+- Where used:
+  - project settings `<Nullable>enable</Nullable>`
+  - service signatures returning nullable DTOs where needed
+
+31) Manual Transaction Boundary via SaveChanges per Repository
+- Concept: persistence commits at repository methods (post UnitOfWork removal).
+- Where used:
+  - repositories like `CheckInRepository.cs` (`_db.SaveChanges()`)
+
+================================================================================
+C) CROSS-CUTTING DESIGN PRINCIPLES USED
+================================================================================
+
+1) Separation of Concerns (SoC)
+- Frontend pages vs API modules vs backend controllers/services/repos.
+- Where used:
+  - `frontend/src/app/pages/**` vs `frontend/src/api/**`
+  - `backend/API` vs `Services` vs `Repositories`
+
+2) Single Responsibility Principle (SRP)
+- Each service/repository focused on one domain area.
+- Where used:
+  - e.g., `CheckInService`, `LeaveService`, `RosterService`, etc.
+
+3) Dependency Inversion Principle (DIP)
+- High-level modules depend on interfaces, not concrete classes.
+- Where used:
+  - constructor injection across services/controllers
+  - interface folders under services/repositories
+
+4) Open/Closed Style Extension
+- New domain modules added via new service/repo/controller without rewriting whole stack.
+- Where used:
+  - separate modules for waitlist, checkin, outcome, roster, on-call, etc.
+
+5) DRY (Don’t Repeat Yourself)
+- Shared response wrappers, auth context, axios interceptors, common UI components.
+- Where used:
+  - `ApiResponse`, `axios.ts`, `AuthContext.tsx`, shared UI component folders
+
+6) KISS (Keep It Simple, Simple Hooks + Modular APIs)
+- Emphasis on approachable React patterns and modular APIs.
+- Where used:
+  - broad use of `useState/useEffect` + per-domain API files
+
+7) Fail-fast Validation
+- Reject invalid state early in service layer.
+- Where used:
+  - guards in services (past dates, wrong status, duplicates, conflicts)
+
+8) Defense in Depth (Security)
+- Frontend route guard + backend role enforcement + JWT checks.
+- Where used:
+  - frontend guard files + backend `[Authorize]` attributes
+
+9) Explicit Error Contracts
+- Predictable errors and messages from middleware + UI rendering.
+- Where used:
+  - `GlobalExceptionMiddleware.cs`
+  - frontend error handling in page action handlers
+
+================================================================================
+D) DESIGN PATTERNS IDENTIFIABLE IN THIS PROJECT
+================================================================================
+
+1) Repository Pattern
+- Where used:
+  - `backend/Repositories/Interface/*`
+  - `backend/Repositories/Implementation/*`
+
+2) Service Layer Pattern
+- Where used:
+  - `backend/Services/Implementation/*`
+
+3) Dependency Injection Pattern
+- Where used:
+  - `backend/CareSchedule.API/Program.cs`
+
+4) Middleware Pattern
+- Where used:
+  - `backend/CareSchedule.API/Middleware/GlobalExceptionMiddleware.cs`
+
+5) Adapter/Facade-like API Client Pattern (Frontend)
+- Where used:
+  - `frontend/src/api/*.ts` as thin adapters over backend endpoints
+
+6) Context Provider Pattern (Frontend)
+- Where used:
+  - `frontend/src/api/AuthContext.tsx`
+
+7) Guard Pattern
+- Where used:
+  - frontend route guards
+  - backend role authorizations and service guard clauses
+
+8) DTO Mapper Pattern (manual mapping)
+- Where used:
+  - service methods mapping model <-> response DTOs (e.g., `CheckInService.cs`)
+
+================================================================================
+E) MINOR/BUT-IMPORTANT TECHNICAL CONCEPTS
+================================================================================
+
+1) Promise-based async programming (`async/await`) in frontend/backed.
+2) Parallel I/O with `Promise.all` in frontend page initialization.
+3) `Map` usage for O(1) lookup of names by ID in UI lists.
+4) Responsive UI with utility classes (grid breakpoints and adaptive layout).
+5) Empty-state and fallback UX as resilience pattern.
+6) String normalization for status handling (e.g., queue status mapping).
+7) Local-only environment override file for secure local config (`appsettings.Local.json`).
+8) Database-level defaults (`HasDefaultValue`, `HasDefaultValueSql`) for stable inserts.
+9) One-to-one linkage for check-in/outcome uniqueness per appointment.
+10) Conflict-safe room assignment using overlap checking logic.
+
+================================================================================
+F) INTERVIEW CHEAT LINE (DIRECT SPEAK)
+================================================================================
+
+"This project uses a layered, interface-driven architecture with clear separation between UI, API transport, business rules, and persistence. On frontend, we use React with guarded role routing, API abstraction, and form validation with React Hook Form. On backend, we use ASP.NET Core with JWT auth, role authorization, service/repository patterns, EF Core SQL Server persistence, and global exception middleware for consistent error contracts. The system emphasizes workflow integrity through status-based validations, active-only constraints, conflict checks, and auditable operations."
+
