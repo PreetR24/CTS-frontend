@@ -19,6 +19,8 @@ export interface AppointmentDto {
   endTime: string;
   status: string;
   bookingChannel: string;
+  rescheduleCountToday?: number;
+  lastRescheduleReason?: string | null;
 }
 
 export interface AppointmentSearchParams {

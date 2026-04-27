@@ -11,7 +11,15 @@ import {
   type AppointmentDto,
 } from "../../../api/appointmentsApi";
 import { meApi } from "../../../api/authApi";
-import { fetchProviders, fetchServices, fetchSites, type ProviderDto, type ServiceDto, type SiteDto } from "../../../api/masterdataApi";
+import {
+  fetchProviders,
+  fetchServices,
+  fetchServicesByProvider,
+  fetchSites,
+  type ProviderDto,
+  type ServiceDto,
+  type SiteDto,
+} from "../../../api/masterdataApi";
 import { searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
 import {
   downloadOutcomePrescription,
@@ -36,19 +44,15 @@ type BookFormValues = {
   slotId: string;
 };
 
-function to12Hour(time24: string): string {
-  const [h, m] = time24.split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return time24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour = h % 12 || 12;
-  return `${hour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} ${suffix}`;
-}
-
 function toLocalSlotStart(slot: SlotDto): Date {
   const dt = new Date(`${slot.slotDate}T00:00:00`);
   const [h, m] = slot.startTime.split(":").map(Number);
   dt.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
   return dt;
+}
+
+function getMinBookableStart(): Date {
+  return new Date(Date.now() + 2 * 60 * 60 * 1000);
 }
 
 export default function PatientAppointments() {
@@ -68,6 +72,7 @@ export default function PatientAppointments() {
   const [slotOptions, setSlotOptions] = useState<SlotDto[]>([]);
   const [slotsForSelection, setSlotsForSelection] = useState<SlotDto[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
+  const [providerServiceIdsMap, setProviderServiceIdsMap] = useState<Map<number, Set<number>>>(new Map());
   const [rescheduleFor, setRescheduleFor] = useState<AppointmentDto | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -128,6 +133,25 @@ export default function PatientAppointments() {
         setProviders(providers);
         setServices(services);
         setSites(sites);
+        const providerMappings = await Promise.all(
+          providers.map(async (provider) => ({
+            providerId: provider.providerId,
+            mappings: await fetchServicesByProvider(provider.providerId).catch(() => []),
+          }))
+        );
+        if (cancelled) return;
+        setProviderServiceIdsMap(
+          new Map(
+            providerMappings.map((entry) => [
+              entry.providerId,
+              new Set(
+                entry.mappings
+                  .filter((m) => (m.status ?? "").toLowerCase() !== "inactive")
+                  .map((m) => m.serviceId)
+              ),
+            ])
+          )
+        );
         setNewProviderId(String(providers[0]?.providerId ?? ""));
         setNewServiceId(String(services[0]?.serviceId ?? ""));
         setNewSiteId(String(sites[0]?.siteId ?? ""));
@@ -149,7 +173,7 @@ export default function PatientAppointments() {
     provider: apt.providerName?.trim() || `Doctor ${apt.providerId}`,
     status: apt.status,
     date: apt.slotDate,
-    time: to12Hour(apt.startTime),
+    time: apt.startTime,
     site: apt.siteName?.trim() || `Site ${apt.siteId}`,
   }));
   const filteredAppointments = useMemo(
@@ -166,12 +190,7 @@ export default function PatientAppointments() {
   const activeServices = useMemo(() => services.filter((s) => s.status === "Active"), [services]);
   const activeProviders = useMemo(() => providers.filter((p) => p.status === "Active"), [providers]);
 
-  const siteOptions = useMemo(() => {
-    if (!newProviderId) return activeSites;
-    const allowed = new Set(slotsForSelection.filter((s) => s.providerId === Number(newProviderId)).map((s) => s.siteId));
-    if (allowed.size === 0) return activeSites;
-    return activeSites.filter((s) => allowed.has(s.siteId));
-  }, [activeSites, newProviderId, slotsForSelection]);
+  const siteOptions = useMemo(() => activeSites, [activeSites]);
 
   const doctorOptions = useMemo(() => {
     if (!newSiteId || !newServiceId || !newDate) return activeProviders;
@@ -202,14 +221,33 @@ export default function PatientAppointments() {
   };
 
   const loadSlotsForBooking = async (providerId: number, serviceId: number, siteId: number, date: string) => {
-    const slots = await searchOpenSlots({ providerId, serviceId, siteId, date });
-    const minStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
-    const open = slots.filter(
-      (s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart
-    );
-    setSlotOptions(open);
-    setBookValue("slotId", String(open[0]?.pubSlotId ?? ""));
-    setRescheduleValue("slotId", String(open[0]?.pubSlotId ?? ""));
+    if (!providerId || !serviceId || !siteId || !date) {
+      setSlotOptions([]);
+      setBookValue("slotId", "");
+      setRescheduleValue("slotId", "");
+      setActionError("Please select site, service, doctor and date first.");
+      return;
+    }
+    try {
+      setActionError(null);
+      const slots = await searchOpenSlots({ providerId, serviceId, siteId, date });
+      const minStart = getMinBookableStart();
+      const open = slots.filter(
+        (s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart
+      );
+      setSlotOptions(open);
+      setBookValue("slotId", String(open[0]?.pubSlotId ?? ""));
+      setRescheduleValue("slotId", String(open[0]?.pubSlotId ?? ""));
+      if (open.length === 0) {
+        setActionNotice("No future slots available for selected filters.");
+      }
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setSlotOptions([]);
+      setBookValue("slotId", "");
+      setRescheduleValue("slotId", "");
+      setActionError(msg ?? "Could not fetch slots.");
+    }
   };
 
   const refreshDoctorOptions = async (nextSiteId: string, nextServiceId: string, nextDate: string) => {
@@ -219,8 +257,11 @@ export default function PatientAppointments() {
     }
     setLoadingDoctors(true);
     try {
+      const candidateProviders = activeProviders.filter((provider) =>
+        providerServiceIdsMap.get(provider.providerId)?.has(Number(nextServiceId))
+      );
       const results = await Promise.all(
-        activeProviders.map(async (provider) => {
+        candidateProviders.map(async (provider) => {
           try {
             const open = await searchOpenSlots({
               providerId: provider.providerId,
@@ -228,7 +269,10 @@ export default function PatientAppointments() {
               siteId: Number(nextSiteId),
               date: nextDate,
             });
-            return open.filter((s) => s.status.toLowerCase() === "open");
+            const minStart = getMinBookableStart();
+            return open.filter(
+              (s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart
+            );
           } catch {
             return [] as SlotDto[];
           }

@@ -27,7 +27,6 @@ import AdminUsers from "../pages/admin/Users";
 import AdminHolidays from "../pages/admin/Holidays";
 import AdminConfig from "../pages/admin/Config";
 import AdminAudit from "../pages/admin/Audit";
-import AdminReports from "../pages/admin/Reports";
 
 // Provider Pages
 import ProviderDashboard from "../pages/provider/Dashboard";
@@ -55,7 +54,6 @@ import NurseRooms from "../pages/nurse/Rooms";
 // Patient Pages
 import PatientDashboard from "../pages/patient/Dashboard";
 import PatientAppointments from "../pages/patient/Appointments";
-import PatientProfile from "../pages/patient/Profile";
 import PatientDoctors from "../pages/patient/Doctors";
 
 // Operations Pages
@@ -94,7 +92,6 @@ export const router = createBrowserRouter([
               { path: "holidays", Component: AdminHolidays },
               { path: "config", Component: AdminConfig },
               { path: "audit", Component: AdminAudit },
-              { path: "reports", Component: AdminReports },
             ],
           },
         ],
@@ -178,7 +175,6 @@ export const router = createBrowserRouter([
               { path: "doctors", Component: PatientDoctors },
               { path: "book", Component: PatientAppointments },
               { path: "appointments", Component: PatientAppointments },
-              { path: "profile", Component: PatientProfile },
             ],
           },
         ],

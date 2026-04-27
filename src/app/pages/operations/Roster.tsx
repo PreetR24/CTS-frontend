@@ -75,10 +75,8 @@ export default function OperationsRoster() {
       return date;
     });
   }, []);
-  const weekRangeLabel = `${weekDates[0]?.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  })} - ${weekDates[6]?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  const formatMonthDay = (d?: Date) => (d ? d.toISOString().slice(5, 10) : "--");
+  const weekRangeLabel = `${formatMonthDay(weekDates[0])} - ${weekDates[6]?.toISOString().slice(0, 10) ?? "--"}`;
   const {
     register: registerTemplate,
     handleSubmit: submitTemplate,
@@ -593,7 +591,7 @@ export default function OperationsRoster() {
                       <div>
                         <p className="text-sm font-medium text-foreground">{day}</p>
                         <p className="text-xs text-muted-foreground">
-                          {weekDates[index]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {weekDates[index]?.toISOString().slice(5, 10)}
                         </p>
                       </div>
                     </td>

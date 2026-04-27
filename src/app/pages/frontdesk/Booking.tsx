@@ -147,31 +147,37 @@ export default function FrontDeskBooking() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!selectedProvider) {
+      if (!selectedService) {
         setProviders(allProviders);
         setServices(allServices);
-        setSelectedService(null);
         setSelectedSlot(null);
         return;
       }
       try {
-        const mapped = await fetchServicesByProvider(selectedProvider.id);
-        if (cancelled) return;
-        const serviceIds = new Set(
-          mapped
-            .filter((m) => (m.status ?? "").toLowerCase() !== "inactive")
-            .map((m) => m.serviceId)
+        const results = await Promise.all(
+          allProviders.map(async (provider) => {
+            try {
+              const mapped = await fetchServicesByProvider(provider.id);
+              const supportsService = mapped.some(
+                (m) => (m.status ?? "").toLowerCase() !== "inactive" && m.serviceId === selectedService.id
+              );
+              return supportsService ? provider : null;
+            } catch {
+              return null;
+            }
+          })
         );
-        const filtered = allServices.filter((s) => serviceIds.has(s.id));
-        setServices(filtered);
-        if (!filtered.some((s) => s.id === selectedService?.id)) {
-          setSelectedService(null);
+        if (cancelled) return;
+        const filteredProviders = results.filter((p): p is BookingProvider => p != null);
+        setProviders(filteredProviders);
+        if (!filteredProviders.some((p) => p.id === selectedProvider?.id)) {
+          setSelectedProvider(null);
           setSelectedSlot(null);
         }
       } catch {
         if (!cancelled) {
-          setServices([]);
-          setSelectedService(null);
+          setProviders([]);
+          setSelectedProvider(null);
           setSelectedSlot(null);
         }
       }
@@ -179,7 +185,7 @@ export default function FrontDeskBooking() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProvider, allProviders, allServices, selectedService?.id]);
+  }, [selectedService, allProviders, allServices, selectedProvider?.id]);
 
   useEffect(() => {
     if (waitlistPrefillAppliedRef.current) return;
@@ -438,6 +444,33 @@ export default function FrontDeskBooking() {
               </div>
             </div>
             <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
+              <h3 className="text-base font-medium text-foreground mb-4">Select Service</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {services.map((service) => (
+                  <button
+                    key={service.id}
+                    onClick={() => {
+                      setSelectedService(service);
+                      setSelectedProvider(null);
+                      setSelectedSlot(null);
+                      setSubmitMessage(null);
+                    }}
+                    className={`p-4 rounded-xl border-2 transition-all text-left ${
+                      selectedService?.id === service.id
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/30"
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-foreground">{service.name}</p>
+                  </button>
+                ))}
+                {services.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No active services available.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
               <h3 className="text-base font-medium text-foreground mb-4">Select Provider</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {providers.map((provider) => (
@@ -445,7 +478,6 @@ export default function FrontDeskBooking() {
                     key={provider.id}
                     onClick={() => {
                       setSelectedProvider(provider);
-                      setSelectedService(null);
                       setSelectedSlot(null);
                       setSubmitMessage(null);
                     }}
@@ -466,31 +498,8 @@ export default function FrontDeskBooking() {
                     </div>
                   </button>
                 ))}
-              </div>
-            </div>
-
-            <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
-              <h3 className="text-base font-medium text-foreground mb-4">Select Service</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {services.map((service) => (
-                  <button
-                    key={service.id}
-                    onClick={() => {
-                      setSelectedService(service);
-                      setSelectedSlot(null);
-                      setSubmitMessage(null);
-                    }}
-                    className={`p-4 rounded-xl border-2 transition-all text-left ${
-                      selectedService?.id === service.id
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/30"
-                    }`}
-                  >
-                    <p className="text-sm font-medium text-foreground">{service.name}</p>
-                  </button>
-                ))}
-                {services.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No active services mapped to selected provider.</p>
+                {providers.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No providers mapped to selected service.</p>
                 )}
               </div>
             </div>

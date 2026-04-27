@@ -11,7 +11,9 @@ import {
   submitLeaveRequest,
   type LeaveRequestDto,
 } from "../../../api/operationsApi";
+import { getAppointmentById, type AppointmentDto } from "../../../api/appointmentsApi";
 import { createLeaveImpact } from "../../../api/operationsPlanningApi";
+import { fetchServices, type ServiceDto } from "../../../api/masterdataApi";
 
 type LeaveFormValues = {
   leaveType: string;
@@ -19,6 +21,47 @@ type LeaveFormValues = {
   endDate: string;
   reason: string;
 };
+
+type ImpactedAppointmentRow = {
+  appointmentId: number;
+  patientName: string;
+  slotTime: string;
+  serviceName: string;
+  visitType: string;
+  status: string;
+};
+
+type SelectedImpactRow = {
+  impactId: number;
+  status: string;
+  impactType: string;
+  impactedAppointments: ImpactedAppointmentRow[];
+};
+
+function parseAppointmentIds(impactJson: string | null): number[] {
+  if (!impactJson) return [];
+  try {
+    const parsed = JSON.parse(impactJson) as { appointmentIds?: unknown };
+    if (!Array.isArray(parsed.appointmentIds)) return [];
+    return parsed.appointmentIds
+      .filter((id): id is number => typeof id === "number" && Number.isInteger(id))
+      .filter((id, idx, arr) => arr.indexOf(id) === idx);
+  } catch {
+    return [];
+  }
+}
+
+function mapImpactedAppointment(appointment: AppointmentDto, servicesById: Map<number, ServiceDto>): ImpactedAppointmentRow {
+  const service = servicesById.get(appointment.serviceId);
+  return {
+    appointmentId: appointment.appointmentId,
+    patientName: appointment.patientName?.trim() || `Patient ${appointment.patientId}`,
+    slotTime: `${appointment.slotDate} ${appointment.startTime}-${appointment.endTime}`,
+    serviceName: appointment.serviceName?.trim() || service?.name || `Service ${appointment.serviceId}`,
+    visitType: service?.visitType || "N/A",
+    status: appointment.status,
+  };
+}
 
 export default function ProviderLeave() {
   const [showModal, setShowModal] = useState(false);
@@ -29,7 +72,8 @@ export default function ProviderLeave() {
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [selectedImpacts, setSelectedImpacts] = useState<Array<{ impactId: number; status: string; impactType: string }>>([]);
+  const [selectedImpacts, setSelectedImpacts] = useState<SelectedImpactRow[]>([]);
+  const [servicesById, setServicesById] = useState<Map<number, ServiceDto>>(new Map());
   const [selectedLeaveMeta, setSelectedLeaveMeta] = useState<{
     leaveType: string;
     status: string;
@@ -60,6 +104,9 @@ export default function ProviderLeave() {
         const list = await searchLeaveRequests({ userId: me.userId });
         if (cancelled) return;
         setLeaves(list);
+        const services = await fetchServices().catch(() => [] as ServiceDto[]);
+        if (cancelled) return;
+        setServicesById(new Map(services.map((service) => [service.serviceId, service])));
         const impacts = await Promise.all(list.map((l) => getLeaveImpacts(l.leaveId).catch(() => [])));
         if (cancelled) return;
         setImpactCountByLeave(new Map(list.map((l, i) => [l.leaveId, impacts[i].length])));
@@ -163,9 +210,25 @@ export default function ProviderLeave() {
       setActionError(null);
       const detail = await getLeaveRequestById(leaveId);
       const impacts = await getLeaveImpacts(leaveId);
-      setSelectedImpacts(
-        impacts.map((i) => ({ impactId: i.impactId, status: i.status, impactType: i.impactType }))
+      const hydratedImpacts = await Promise.all(
+        impacts.map(async (impact) => {
+          const appointmentIds = parseAppointmentIds(impact.impactJson);
+          const impactedAppointments = (
+            await Promise.all(
+              appointmentIds.map((appointmentId) => getAppointmentById(appointmentId).catch(() => null))
+            )
+          )
+            .filter((appointment): appointment is AppointmentDto => appointment != null)
+            .map((appointment) => mapImpactedAppointment(appointment, servicesById));
+          return {
+            impactId: impact.impactId,
+            status: impact.status,
+            impactType: impact.impactType,
+            impactedAppointments,
+          };
+        })
       );
+      setSelectedImpacts(hydratedImpacts);
       setSelectedLeaveMeta({
         leaveType: detail.leaveType,
         status: detail.status,
@@ -346,6 +409,32 @@ export default function ProviderLeave() {
                   <p className="text-sm text-foreground mt-1">{impact.impactType}</p>
                   <p className="text-xs text-muted-foreground mt-1">Status</p>
                   <p className="text-sm font-medium text-foreground">{impact.status}</p>
+                  {impact.impactedAppointments.length > 0 && (
+                    <div className="mt-3 rounded border border-border overflow-auto bg-card">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/30">
+                            <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Patient</th>
+                            <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Slot</th>
+                            <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Service</th>
+                            <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Type</th>
+                            <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {impact.impactedAppointments.map((appointment) => (
+                            <tr key={`${impact.impactId}-${appointment.appointmentId}`} className="border-b border-border last:border-0">
+                              <td className="py-2 px-2 text-sm text-foreground">{appointment.patientName}</td>
+                              <td className="py-2 px-2 text-sm text-muted-foreground">{appointment.slotTime}</td>
+                              <td className="py-2 px-2 text-sm text-muted-foreground">{appointment.serviceName}</td>
+                              <td className="py-2 px-2 text-sm text-muted-foreground">{appointment.visitType}</td>
+                              <td className="py-2 px-2 text-sm text-muted-foreground">{appointment.status}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

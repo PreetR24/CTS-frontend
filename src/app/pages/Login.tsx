@@ -59,6 +59,10 @@ export default function Login() {
       setError("Name and email are required for signup");
       return;
     }
+    if (signupPhone && !/^\d{10}$/.test(signupPhone.trim())) {
+      setError("Phone number must be exactly 10 digits");
+      return;
+    }
     try {
       setFormLoading(true);
       setError("");
@@ -160,6 +164,7 @@ export default function Login() {
                   value={signupPhone}
                   onChange={(e) => setSignupPhone(e.target.value)}
                   placeholder="Enter phone number"
+                  maxLength={10}
                   className="w-full mt-1 p-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>

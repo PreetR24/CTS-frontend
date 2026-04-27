@@ -5,6 +5,7 @@ import { unwrapAxiosApiData, unwrapAxiosApiList } from "./apiTypes";
 export interface CheckInDto {
   checkInId: number;
   appointmentId: number;
+  patientName?: string | null;
   tokenNo: string | null;
   checkInTime: string;
   roomAssigned: number | null;

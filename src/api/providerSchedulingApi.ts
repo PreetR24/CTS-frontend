@@ -36,6 +36,21 @@ export async function createAvailabilityBlock(payload: {
   return unwrapAxiosApiData(res).id;
 }
 
+export async function updateAvailabilityBlock(
+  blockId: number,
+  payload: {
+    providerId: number;
+    siteId: number;
+    date: string;
+    startTime: string;
+    endTime: string;
+    reason?: string;
+  }
+): Promise<void> {
+  const res = await api.put<ApiResponse<object>>(`/availability-blocks/${blockId}`, payload);
+  unwrapAxiosApiData(res);
+}
+
 export async function deleteAvailabilityBlock(blockId: number): Promise<void> {
   const res = await api.delete<ApiResponse<object>>(`/availability-blocks/${blockId}`);
   unwrapAxiosApiData(res);

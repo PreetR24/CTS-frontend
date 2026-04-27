@@ -7,7 +7,6 @@ import {
   Users,
   Activity,
   Settings,
-  BarChart3,
   Calendar,
 } from "lucide-react";
 
@@ -22,7 +21,6 @@ export default function AdminLayout() {
     { icon: Calendar, label: "Holidays", path: "/admin/holidays" },
     { icon: Settings, label: "Configuration", path: "/admin/config" },
     { icon: Settings, label: "Audit", path: "/admin/audit" },
-    { icon: BarChart3, label: "Reports", path: "/admin/reports" },
   ];
 
   return (

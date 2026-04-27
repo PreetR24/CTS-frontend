@@ -81,7 +81,7 @@ export default function NurseDashboard() {
                   <span className="px-2 py-1 rounded-md bg-[#a9d4b8]/30 text-xs text-foreground">{row.status}</span>
                 </div>
                 <p className="text-xs text-muted-foreground mb-1">Token: {row.tokenNo}</p>
-                <p className="text-xs text-muted-foreground">Check-in: {new Date(row.checkInTime).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">Check-in: {row.checkInTime}</p>
               </div>
             ))}
           </div>

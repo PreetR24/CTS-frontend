@@ -319,8 +319,10 @@ export default function AdminSites() {
                   placeholder="Apollo Clinic - Location"
                   {...registerCreate("name", {
                     required: "Site name is required.",
-                    validate: (value) =>
-                      value.trim().length > 0 || "Site name cannot be empty.",
+                    validate: {
+                      nonEmpty: (value) => value.trim().length > 0 || "Site name cannot be empty.",
+                      hasLetter: (value) => /[A-Za-z]/.test(value) || "Site name must contain at least one letter.",
+                    },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
@@ -332,6 +334,8 @@ export default function AdminSites() {
                   type="text"
                   placeholder="Street, Area, City"
                   {...registerCreate("address", {
+                    required: "Address is required.",
+                    validate: (value) => value.trim().length > 0 || "Address cannot be empty.",
                     maxLength: { value: 500, message: "Address is too long." },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -380,8 +384,10 @@ export default function AdminSites() {
                 type="text"
                 {...registerEdit("name", {
                   required: "Site name is required.",
-                  validate: (value) =>
-                    value.trim().length > 0 || "Site name cannot be empty.",
+                  validate: {
+                    nonEmpty: (value) => value.trim().length > 0 || "Site name cannot be empty.",
+                    hasLetter: (value) => /[A-Za-z]/.test(value) || "Site name must contain at least one letter.",
+                  },
                 })}
                 className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
@@ -390,6 +396,8 @@ export default function AdminSites() {
               <input
                 type="text"
                 {...registerEdit("address", {
+                  required: "Address is required.",
+                  validate: (value) => value.trim().length > 0 || "Address cannot be empty.",
                   maxLength: { value: 500, message: "Address is too long." },
                 })}
                 className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"

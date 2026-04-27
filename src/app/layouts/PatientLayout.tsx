@@ -4,7 +4,6 @@ import { Header } from "../components/Header";
 import {
   LayoutDashboard,
   Calendar,
-  User,
 } from "lucide-react";
 
 export default function PatientLayout() {
@@ -12,7 +11,6 @@ export default function PatientLayout() {
     { icon: LayoutDashboard, label: "Dashboard", path: "/patient" },
     { icon: Calendar, label: "Doctors & Slots", path: "/patient/doctors" },
     { icon: Calendar, label: "My Appointments", path: "/patient/appointments" },
-    { icon: User, label: "My Profile", path: "/patient/profile" },
   ];
 
   return (

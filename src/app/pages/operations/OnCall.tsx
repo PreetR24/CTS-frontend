@@ -28,6 +28,12 @@ type OnCallRow = {
 };
 
 export default function OperationsOnCall() {
+  const weekdayFromIsoDate = (isoDate: string) => {
+    const d = new Date(`${isoDate}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return "-";
+    const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    return weekdays[d.getDay()] ?? "-";
+  };
   const [rows, setRows] = useState<OnCallRow[]>([]);
   const [editOnCallId, setEditOnCallId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -88,7 +94,7 @@ export default function OperationsOnCall() {
           onCalls.map((o) => ({
             id: o.onCallId,
             date: o.date,
-            day: new Date(`${o.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "long" }),
+            day: weekdayFromIsoDate(o.date),
             department: o.department ?? "General",
             primary: names.get(o.primaryUserId) ?? "Team Member",
             backup: o.backupUserId ? names.get(o.backupUserId) ?? "Team Member" : "—",
@@ -184,7 +190,7 @@ export default function OperationsOnCall() {
       list.map((o) => ({
         id: o.onCallId,
         date: o.date,
-        day: new Date(`${o.date}T00:00:00`).toLocaleDateString("en-US", { weekday: "long" }),
+        day: weekdayFromIsoDate(o.date),
         department: o.department ?? "Nurse",
         primary: names.get(o.primaryUserId) ?? "Nurse",
         backup: o.backupUserId ? names.get(o.backupUserId) ?? "Nurse" : "—",

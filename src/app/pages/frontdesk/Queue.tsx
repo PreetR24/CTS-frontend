@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { Clock, User, Activity, AlertCircle, CheckCircle2 } from "lucide-react";
 import { isAxiosError } from "axios";
-import { searchAppointments, type AppointmentDto } from "../../../api/appointmentsApi";
+import {
+  markAppointmentNoShow,
+  rescheduleAppointment,
+  searchAppointments,
+  type AppointmentDto,
+} from "../../../api/appointmentsApi";
 import {
   assignCheckInRoom,
   createCheckIn,
@@ -10,6 +15,7 @@ import {
 } from "../../../api/checkinsApi";
 import { fetchProviders, fetchRooms, fetchServices, type RoomDto } from "../../../api/masterdataApi";
 import { fetchUsers, type UserDto } from "../../../api/usersApi";
+import { searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
 
 type AppointmentRow = {
   id: number;
@@ -20,15 +26,8 @@ type AppointmentRow = {
   date: string;
   time: string;
   appointmentStatus: string;
+  startTime24: string;
 };
-
-function to12Hour(time24: string): string {
-  const [h, m] = time24.split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return time24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour = h % 12 || 12;
-  return `${hour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} ${suffix}`;
-}
 
 export default function FrontDeskQueue() {
   const [selectedStatus, setSelectedStatus] = useState("All");
@@ -43,6 +42,17 @@ export default function FrontDeskQueue() {
   const [roomOptions, setRoomOptions] = useState<RoomDto[]>([]);
   const [selectedProviderFilter, setSelectedProviderFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState("");
+  const [noShowRescheduleAppointment, setNoShowRescheduleAppointment] = useState<AppointmentDto | null>(null);
+  const [noShowSlotOptions, setNoShowSlotOptions] = useState<SlotDto[]>([]);
+  const [noShowSlotValue, setNoShowSlotValue] = useState("");
+  const [loadingNoShowSlots, setLoadingNoShowSlots] = useState(false);
+
+  const toLocalSlotStart = (slot: SlotDto) => {
+    const dt = new Date(`${slot.slotDate}T00:00:00`);
+    const [h, m] = slot.startTime.split(":").map(Number);
+    dt.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+    return dt;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -78,9 +88,14 @@ export default function FrontDeskQueue() {
     provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
     service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
     date: apt.slotDate,
-    time: to12Hour(apt.startTime),
+    time: apt.startTime,
+    startTime24: apt.startTime,
     appointmentStatus: apt.status,
   }));
+  const isPastAppointment = (apt: AppointmentRow) => {
+    const asDate = new Date(`${apt.date}T${apt.startTime24}:00`);
+    return !Number.isNaN(asDate.getTime()) && asDate < new Date();
+  };
   const normalizeQueueStatus = (raw: string): string => {
     const s = raw.trim().toLowerCase().replace(/[\s_-]/g, "");
     if (s === "booked") return "Booked";
@@ -96,6 +111,14 @@ export default function FrontDeskQueue() {
   };
   const getQueueStatus = (apt: AppointmentRow): string =>
     normalizeQueueStatus(checkInsByAppointment.get(apt.id)?.status ?? apt.appointmentStatus);
+  const getDisplayQueueStatus = (apt: AppointmentRow): string => {
+    const operationalStatus = getQueueStatus(apt);
+    const appointmentMeta = appointments.find((a) => a.appointmentId === apt.id);
+    if (operationalStatus === "Booked" && (appointmentMeta?.rescheduleCountToday ?? 0) > 0) {
+      return "Rescheduled";
+    }
+    return operationalStatus;
+  };
   
   const statusCounts = {
     all: todayAppointments.length,
@@ -120,7 +143,7 @@ export default function FrontDeskQueue() {
   const searchedAppointments = providerFilteredAppointments.filter((apt) => {
     const q = searchText.trim().toLowerCase();
     if (!q) return true;
-    const queueStatus = getQueueStatus(apt).toLowerCase();
+    const queueStatus = getDisplayQueueStatus(apt).toLowerCase();
     return (
       apt.patientName.toLowerCase().includes(q) ||
       apt.provider.toLowerCase().includes(q) ||
@@ -166,6 +189,78 @@ export default function FrontDeskQueue() {
       setNotice(msg ?? "Could not assign room.");
     }
   };
+  const handleMarkNoShow = async (appointmentId: number) => {
+    try {
+      setNotice(null);
+      await markAppointmentNoShow(appointmentId);
+      const today = new Date().toISOString().slice(0, 10);
+      const refreshed = await searchAppointments({ date: today });
+      setAppointments(refreshed);
+      setNotice("Appointment marked as NoShow.");
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setNotice(msg ?? "Could not mark appointment as NoShow.");
+    }
+  };
+
+  const openNoShowRescheduleModal = async (appointmentId: number) => {
+    const appointment = appointments.find((a) => a.appointmentId === appointmentId) ?? null;
+    if (!appointment) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setNoShowRescheduleAppointment(appointment);
+    setNoShowSlotValue("");
+    setNoShowSlotOptions([]);
+    setLoadingNoShowSlots(true);
+    try {
+      setNotice(null);
+      const slots = await searchOpenSlots({
+        providerId: appointment.providerId,
+        serviceId: appointment.serviceId,
+        siteId: appointment.siteId,
+        date: today,
+      });
+      const now = new Date();
+      now.setSeconds(0, 0);
+      const openTodayFuture = slots.filter((s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) > now);
+      setNoShowSlotOptions(openTodayFuture);
+      if (openTodayFuture[0]) setNoShowSlotValue(String(openTodayFuture[0].pubSlotId));
+      if (openTodayFuture.length === 0) {
+        setNotice("No future slots available today for this provider/service/site.");
+      }
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setNoShowSlotOptions([]);
+      setNotice(msg ?? "Could not fetch today slots for NoShow reschedule.");
+    } finally {
+      setLoadingNoShowSlots(false);
+    }
+  };
+
+  const handleNoShowReschedule = async () => {
+    if (!noShowRescheduleAppointment) return;
+    const selectedSlotId = Number(noShowSlotValue);
+    if (!selectedSlotId) {
+      setNotice("Please select a slot.");
+      return;
+    }
+    try {
+      setNotice(null);
+      await rescheduleAppointment(noShowRescheduleAppointment.appointmentId, {
+        newPublishedSlotId: selectedSlotId,
+        reason: "Rescheduled after NoShow by FrontDesk (same day)",
+      });
+      const today = new Date().toISOString().slice(0, 10);
+      const refreshed = await searchAppointments({ date: today });
+      setAppointments(refreshed);
+      setNoShowRescheduleAppointment(null);
+      setNoShowSlotOptions([]);
+      setNoShowSlotValue("");
+      setNotice("NoShow appointment rescheduled for today.");
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setNotice(msg ?? "Could not reschedule NoShow appointment.");
+    }
+  };
 
   const openAssignRoomModal = async (appointmentId: number) => {
     setRoomAssignAppointmentId(appointmentId);
@@ -193,6 +288,7 @@ export default function FrontDeskQueue() {
       case "InRoom": return { bg: "bg-[#a68fcf]/20", text: "text-[#9478bf]", border: "border-[#a68fcf]/40" };
       case "WithProvider": return { bg: "bg-[#a68fcf]/20", text: "text-[#9478bf]", border: "border-[#a68fcf]/40" };
       case "Completed": return { bg: "bg-[#95d4a8]/20", text: "text-[#75b488]", border: "border-[#95d4a8]/40" };
+      case "Rescheduled": return { bg: "bg-[#7ba3c0]/20", text: "text-[#5a8bc1]", border: "border-[#7ba3c0]/40" };
       default: return { bg: "bg-muted", text: "text-muted-foreground", border: "border-border" };
     }
   };
@@ -299,9 +395,11 @@ export default function FrontDeskQueue() {
         <div className="divide-y divide-border">
           {searchedAppointments.map((apt, index) => {
             const queueStatus = getQueueStatus(apt);
-            const colors = getStatusColor(queueStatus);
+            const displayQueueStatus = getDisplayQueueStatus(apt);
+            const colors = getStatusColor(displayQueueStatus);
             const tokenNo = checkInsByAppointment.get(apt.id)?.tokenNo;
             const assignedRoom = checkInsByAppointment.get(apt.id)?.roomAssigned;
+            const appointmentMeta = appointments.find((a) => a.appointmentId === apt.id);
             return (
               <div key={apt.id} className="p-5 hover:bg-secondary/30 transition-colors">
                 <div className="flex items-center justify-between">
@@ -319,7 +417,7 @@ export default function FrontDeskQueue() {
                       <div className="flex items-center gap-2 mb-1">
                         <p className="text-base font-medium text-foreground">{apt.patientName}</p>
                         <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
-                          {queueStatus}
+                          {displayQueueStatus}
                         </span>
                         {assignedRoom && (
                           <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-secondary text-foreground">
@@ -328,6 +426,16 @@ export default function FrontDeskQueue() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mb-1">{apt.service}</p>
+                      {!!appointmentMeta?.rescheduleCountToday && (
+                        <p className="text-xs text-muted-foreground">
+                          Reschedules today: {appointmentMeta.rescheduleCountToday}
+                        </p>
+                      )}
+                      {!!appointmentMeta?.lastRescheduleReason && (
+                        <p className="text-xs text-muted-foreground">
+                          Last reschedule reason: {appointmentMeta.lastRescheduleReason}
+                        </p>
+                      )}
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <User className="w-3 h-3" />
@@ -344,12 +452,21 @@ export default function FrontDeskQueue() {
                   {/* Action Buttons */}
                   <div className="flex gap-2 ml-4">
                     {queueStatus === "Booked" && (
-                      <button
-                        onClick={() => handleCheckIn(apt.id)}
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#6b9bd1] to-[#5a8bc1] text-white text-sm font-medium hover:shadow-md transition-all"
-                      >
-                        Check In
-                      </button>
+                      isPastAppointment(apt) ? (
+                        <button
+                          onClick={() => void handleMarkNoShow(apt.id)}
+                          className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-all"
+                        >
+                          Mark NoShow
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleCheckIn(apt.id)}
+                          className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#6b9bd1] to-[#5a8bc1] text-white text-sm font-medium hover:shadow-md transition-all"
+                        >
+                          Check In
+                        </button>
+                      )
                     )}
                     {queueStatus === "CheckedIn" && (
                       <>
@@ -369,6 +486,14 @@ export default function FrontDeskQueue() {
                     )}
                     {queueStatus === "Completed" && (
                       <CheckCircle2 className="w-8 h-8 text-[#95d4a8]" />
+                    )}
+                    {queueStatus === "NoShow" && (
+                      <button
+                        onClick={() => void openNoShowRescheduleModal(apt.id)}
+                        className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary transition-all"
+                      >
+                        Reschedule (Today)
+                      </button>
                     )}
                   </div>
                 </div>
@@ -409,6 +534,46 @@ export default function FrontDeskQueue() {
                 className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
               >
                 Assign
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {noShowRescheduleAppointment != null && (
+        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl border border-border p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-base font-medium text-foreground mb-2">Reschedule NoShow (Today)</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Only future slots for today are shown.
+            </p>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Slot</label>
+            <select
+              value={noShowSlotValue}
+              onChange={(e) => setNoShowSlotValue(e.target.value)}
+              disabled={loadingNoShowSlots}
+              className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+            >
+              <option value="">
+                {loadingNoShowSlots ? "Loading slots..." : "Select slot"}
+              </option>
+              {noShowSlotOptions.map((slot) => (
+                <option key={slot.pubSlotId} value={slot.pubSlotId}>
+                  {slot.slotDate} {slot.startTime}-{slot.endTime}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setNoShowRescheduleAppointment(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleNoShowReschedule()}
+                className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+              >
+                Reschedule
               </button>
             </div>
           </div>

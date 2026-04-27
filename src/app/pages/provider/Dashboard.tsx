@@ -158,7 +158,7 @@ export default function ProviderDashboard() {
       <div className="bg-card rounded-xl border border-border">
         <div className="border-b border-border p-5">
           <h3 className="text-sm font-medium text-foreground">Today's Appointments</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{new Date().toLocaleDateString()}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{new Date().toISOString().slice(0, 10)}</p>
         </div>
         <div className="p-5">
           <div className="space-y-3">

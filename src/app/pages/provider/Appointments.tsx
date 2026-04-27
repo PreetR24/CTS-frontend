@@ -25,14 +25,6 @@ type AppointmentRow = {
   status: string;
 };
 
-function to12Hour(time24: string): string {
-  const [h, m] = time24.split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return time24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour = h % 12 || 12;
-  return `${hour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} ${suffix}`;
-}
-
 export default function ProviderAppointments() {
   const canAddOutcome = (status: string) => status.trim().toLowerCase() === "completed";
 
@@ -104,7 +96,7 @@ export default function ProviderAppointments() {
     patientName: apt.patientName?.trim() || `Patient ${apt.patientId}`,
     service: apt.serviceName?.trim() || `Service ${apt.serviceId}`,
     date: apt.slotDate,
-    time: to12Hour(apt.startTime),
+    time: apt.startTime,
     site: apt.siteName?.trim() || `Site ${apt.siteId}`,
     status: apt.status,
   }));
@@ -268,6 +260,12 @@ export default function ProviderAppointments() {
             <p className="text-sm text-muted-foreground">Date: {selectedDetails.slotDate}</p>
             <p className="text-sm text-muted-foreground">Time: {selectedDetails.startTime}-{selectedDetails.endTime}</p>
             <p className="text-sm text-muted-foreground">Status: {selectedDetails.status}</p>
+            <p className="text-sm text-muted-foreground">
+              Reschedules today: {selectedDetails.rescheduleCountToday ?? 0}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Last reschedule reason: {selectedDetails.lastRescheduleReason?.trim() || "-"}
+            </p>
             <button
               onClick={closeDetailsModal}
               className="mt-4 w-full px-4 py-2 rounded-lg border border-border text-sm hover:bg-secondary"

@@ -13,17 +13,12 @@ import {
 type QueueRow = {
   checkInId: number;
   appointmentId: number;
+  patientName: string;
   tokenNo: string;
   roomAssigned: number | null;
   status: string;
   checkInTime: string;
 };
-
-function toLocalDateTime(value: string): string {
-  const asDate = new Date(value);
-  if (Number.isNaN(asDate.getTime())) return value;
-  return asDate.toLocaleString();
-}
 
 function normalizeQueueStatus(raw: string): string {
   const s = raw.trim().toLowerCase().replace(/[\s_-]/g, "");
@@ -46,6 +41,7 @@ export default function NursePatients() {
       checkIns.map((c: CheckInDto) => ({
         checkInId: c.checkInId,
         appointmentId: c.appointmentId,
+        patientName: c.patientName?.trim() || "-",
         tokenNo: c.tokenNo ?? "—",
         roomAssigned: c.roomAssigned,
         status: normalizeQueueStatus(c.status),
@@ -64,6 +60,7 @@ export default function NursePatients() {
           checkIns.map((c: CheckInDto) => ({
             checkInId: c.checkInId,
             appointmentId: c.appointmentId,
+            patientName: c.patientName?.trim() || "-",
             tokenNo: c.tokenNo ?? "—",
             roomAssigned: c.roomAssigned,
             status: normalizeQueueStatus(c.status),
@@ -196,6 +193,7 @@ export default function NursePatients() {
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <h3 className="text-base font-medium text-foreground">Appointment #{row.appointmentId}</h3>
+                      <p className="text-sm text-muted-foreground">Patient: {row.patientName}</p>
                       <p className="text-sm text-muted-foreground">CheckIn #{row.checkInId}</p>
                     </div>
                     <span className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 ${colors.bg} ${colors.text}`}>
@@ -215,7 +213,7 @@ export default function NursePatients() {
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">Check-in Time</p>
-                      <p className="text-sm font-medium text-foreground">{toLocalDateTime(row.checkInTime)}</p>
+                      <p className="text-sm font-medium text-foreground">{row.checkInTime}</p>
                     </div>
                   </div>
 

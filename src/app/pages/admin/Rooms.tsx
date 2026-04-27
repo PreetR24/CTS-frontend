@@ -247,7 +247,11 @@ export default function AdminRooms() {
                   placeholder="Room name"
                   {...registerCreate("roomName", {
                     required: "Room name is required.",
-                    validate: (value) => value.trim().length > 0 || "Room name cannot be empty.",
+                    minLength: { value: 1, message: "Room name must be at least 1 character." },
+                    validate: {
+                      nonEmpty: (value) => value.trim().length > 0 || "Room name cannot be empty.",
+                      hasLetter: (value) => /[A-Za-z]/.test(value) || "Room name must contain at least one letter.",
+                    },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
                 />
@@ -257,7 +261,11 @@ export default function AdminRooms() {
                   placeholder="Room type"
                   {...registerCreate("roomType", {
                     required: "Room type is required.",
-                    validate: (value) => value.trim().length > 0 || "Room type cannot be empty.",
+                    minLength: { value: 1, message: "Room type must be at least 1 character." },
+                    validate: {
+                      nonEmpty: (value) => value.trim().length > 0 || "Room type cannot be empty.",
+                      textOnly: (value) => /^[A-Za-z\s]+$/.test(value.trim()) || "Room type must contain only letters.",
+                    },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
                 />
@@ -301,7 +309,11 @@ export default function AdminRooms() {
                   placeholder="Room name"
                   {...registerEdit("roomName", {
                     required: "Room name is required.",
-                    validate: (value) => value.trim().length > 0 || "Room name cannot be empty.",
+                    minLength: { value: 1, message: "Room name must be at least 1 character." },
+                    validate: {
+                      nonEmpty: (value) => value.trim().length > 0 || "Room name cannot be empty.",
+                      hasLetter: (value) => /[A-Za-z]/.test(value) || "Room name must contain at least one letter.",
+                    },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
                 />
@@ -311,7 +323,11 @@ export default function AdminRooms() {
                   placeholder="Room type"
                   {...registerEdit("roomType", {
                     required: "Room type is required.",
-                    validate: (value) => value.trim().length > 0 || "Room type cannot be empty.",
+                    minLength: { value: 1, message: "Room type must be at least 1 character." },
+                    validate: {
+                      nonEmpty: (value) => value.trim().length > 0 || "Room type cannot be empty.",
+                      textOnly: (value) => /^[A-Za-z\s]+$/.test(value.trim()) || "Room type must contain only letters.",
+                    },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground"
                 />

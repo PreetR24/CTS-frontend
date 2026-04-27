@@ -15,6 +15,9 @@ import { mapServiceRow, type AdminServiceRow } from "../../../api/adminViewMappe
 type CreateServiceFormValues = {
   name: string;
   visitType: string;
+  defaultDurationMin: number;
+  bufferBeforeMin: number;
+  bufferAfterMin: number;
 };
 
 type EditServiceFormValues = {
@@ -41,7 +44,13 @@ export default function AdminServices() {
     reset: resetCreateForm,
     formState: { errors: createErrors },
   } = useForm<CreateServiceFormValues>({
-    defaultValues: { name: "", visitType: "New" },
+    defaultValues: {
+      name: "",
+      visitType: "New",
+      defaultDurationMin: 30,
+      bufferBeforeMin: 0,
+      bufferAfterMin: 0,
+    },
   });
   const {
     register: registerEdit,
@@ -90,7 +99,13 @@ export default function AdminServices() {
   const openCreateModal = () => setShowModal(true);
   const closeCreateModal = () => {
     setShowModal(false);
-    resetCreateForm({ name: "", visitType: "New" });
+    resetCreateForm({
+      name: "",
+      visitType: "New",
+      defaultDurationMin: 30,
+      bufferBeforeMin: 0,
+      bufferAfterMin: 0,
+    });
   };
   const getErrorMessage = (error: unknown, fallback: string) => {
     if (isAxiosError<{ message?: string }>(error)) {
@@ -148,7 +163,13 @@ export default function AdminServices() {
   const createServiceFromModal = async (values: CreateServiceFormValues) => {
     try {
       setActionError(null);
-      const created = await createService({ name: values.name.trim(), visitType: values.visitType.trim() });
+      const created = await createService({
+        name: values.name.trim(),
+        visitType: values.visitType.trim(),
+        defaultDurationMin: values.defaultDurationMin,
+        bufferBeforeMin: values.bufferBeforeMin,
+        bufferAfterMin: values.bufferAfterMin,
+      });
       setServices((prev) => [...prev, mapServiceRow(created)]);
       closeCreateModal();
     } catch (error) {
@@ -333,6 +354,44 @@ export default function AdminServices() {
                   <option>Procedure</option>
                 </select>
                 {createErrors.visitType && <p className="text-xs text-destructive mt-1">{createErrors.visitType.message}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Duration (min)</label>
+                <input
+                  type="number"
+                  {...registerCreate("defaultDurationMin", {
+                    valueAsNumber: true,
+                    min: { value: 1, message: "Duration must be at least 1 minute." },
+                  })}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                {createErrors.defaultDurationMin && <p className="text-xs text-destructive mt-1">{createErrors.defaultDurationMin.message}</p>}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Buffer Before (min)</label>
+                  <input
+                    type="number"
+                    {...registerCreate("bufferBeforeMin", {
+                      valueAsNumber: true,
+                      min: { value: 0, message: "Buffer cannot be negative." },
+                    })}
+                    className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  {createErrors.bufferBeforeMin && <p className="text-xs text-destructive mt-1">{createErrors.bufferBeforeMin.message}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Buffer After (min)</label>
+                  <input
+                    type="number"
+                    {...registerCreate("bufferAfterMin", {
+                      valueAsNumber: true,
+                      min: { value: 0, message: "Buffer cannot be negative." },
+                    })}
+                    className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  {createErrors.bufferAfterMin && <p className="text-xs text-destructive mt-1">{createErrors.bufferAfterMin.message}</p>}
+                </div>
               </div>
               <div className="flex gap-3 mt-6">
                 <button

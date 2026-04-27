@@ -25,6 +25,7 @@ import {
   createAvailabilityBlock,
   deleteAvailabilityBlock,
   searchAvailabilityBlocks,
+  updateAvailabilityBlock,
   type AvailabilityBlockDto,
 } from "../../../api/providerSchedulingApi";
 import { generateSlotsFromTemplate, searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
@@ -64,6 +65,8 @@ export default function ProviderAvailability() {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockModalMode, setBlockModalMode] = useState<"create" | "view" | "edit">("create");
   const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
+  const [blockSiteFilter, setBlockSiteFilter] = useState<string>("All");
+  const [blockDateFilter, setBlockDateFilter] = useState<string>("");
   const [blockDate, setBlockDate] = useState(new Date().toISOString().slice(0, 10));
   const [blockStartTime, setBlockStartTime] = useState("12:00");
   const [blockEndTime, setBlockEndTime] = useState("13:00");
@@ -72,6 +75,7 @@ export default function ProviderAvailability() {
   const [newServiceId, setNewServiceId] = useState("");
   const [slotDate, setSlotDate] = useState(new Date().toISOString().slice(0, 10));
   const [slotStatusFilter, setSlotStatusFilter] = useState("All");
+  const [generatingTemplateId, setGeneratingTemplateId] = useState<number | null>(null);
   const [slotRows, setSlotRows] = useState<
     Array<{
       key: string;
@@ -135,9 +139,17 @@ export default function ProviderAvailability() {
         );
         if (cancelled) return;
         setTemplates(grouped.flat());
-        if (firstSiteId) {
-          const blockList = await searchAvailabilityBlocks(me.userId, firstSiteId);
-          if (!cancelled) setBlocks(blockList);
+        if (siteList.length > 0) {
+          const blockGroups = await Promise.all(
+            siteList.map((site) => searchAvailabilityBlocks(me.userId, site.siteId).catch(() => [] as AvailabilityBlockDto[]))
+          );
+          if (!cancelled) {
+            setBlocks(
+              blockGroups
+                .flat()
+                .sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`))
+            );
+          }
         }
       } catch {
         if (!cancelled) {
@@ -184,6 +196,15 @@ export default function ProviderAvailability() {
   const filteredSlotRows = useMemo(
     () => slotRows.filter((row) => slotStatusFilter === "All" || row.status === slotStatusFilter),
     [slotRows, slotStatusFilter]
+  );
+  const filteredBlocks = useMemo(
+    () =>
+      blocks.filter(
+        (block) =>
+          (blockSiteFilter === "All" || String(block.siteId) === blockSiteFilter) &&
+          (!blockDateFilter || block.date === blockDateFilter)
+      ),
+    [blocks, blockSiteFilter, blockDateFilter]
   );
 
   const loadMySlots = async (targetDate: string, targetSiteId: number) => {
@@ -328,13 +349,19 @@ export default function ProviderAvailability() {
     try {
       setActionError(null);
       setActionNotice(null);
-      await generateSlotsFromTemplate({ templateId, siteId, days: 14 });
-      setActionNotice("Slots generated successfully from template.");
+      setGeneratingTemplateId(templateId);
+      setActionNotice("Generating slots...");
+      const result = await generateSlotsFromTemplate({ templateId, siteId, days: 14 });
+      setActionNotice(
+        `Slots generated. Added: ${result.insertedCount}, skipped existing: ${result.skippedExistingCount}.`
+      );
       if (providerId && siteId) {
         await loadMySlots(slotDate, siteId);
       }
     } catch (error) {
       setActionError(getErrorMessage(error, "Could not generate slots."));
+    } finally {
+      setGeneratingTemplateId(null);
     }
   };
 
@@ -363,10 +390,19 @@ export default function ProviderAvailability() {
 
   const closeBlockModal = () => setShowBlockModal(false);
 
-  const refreshBlocks = async (siteId: number) => {
-    if (!providerId || !siteId) return;
-    const blockList = await searchAvailabilityBlocks(providerId, siteId);
-    setBlocks(blockList);
+  const refreshBlocks = async () => {
+    if (!providerId || sites.length === 0) {
+      setBlocks([]);
+      return;
+    }
+    const blockGroups = await Promise.all(
+      sites.map((site) => searchAvailabilityBlocks(providerId, site.siteId).catch(() => [] as AvailabilityBlockDto[]))
+    );
+    setBlocks(
+      blockGroups
+        .flat()
+        .sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`))
+    );
   };
 
   const addBlockFromModal = async (values: { date: string; startTime: string; endTime: string; reason: string }) => {
@@ -396,17 +432,26 @@ export default function ProviderAvailability() {
     try {
       setActionError(null);
       if (blockModalMode === "edit" && selectedBlockId != null) {
-        await deleteAvailabilityBlock(selectedBlockId);
+        await updateAvailabilityBlock(selectedBlockId, {
+          providerId,
+          siteId: form.siteId,
+          date: values.date,
+          startTime: values.startTime,
+          endTime: values.endTime,
+          reason: values.reason || "Provider block",
+        });
+      } else {
+        await createAvailabilityBlock({
+          providerId,
+          siteId: form.siteId,
+          date: values.date,
+          startTime: values.startTime,
+          endTime: values.endTime,
+          reason: values.reason || "Provider block",
+        });
       }
-      await createAvailabilityBlock({
-        providerId,
-        siteId: form.siteId,
-        date: values.date,
-        startTime: values.startTime,
-        endTime: values.endTime,
-        reason: values.reason || "Provider block",
-      });
-      await refreshBlocks(form.siteId);
+      await refreshBlocks();
+      await loadMySlots(slotDate, form.siteId);
       setShowBlockModal(false);
     } catch (error) {
       setActionError(getErrorMessage(error, "Could not save block."));
@@ -417,8 +462,8 @@ export default function ProviderAvailability() {
     try {
       setActionError(null);
       await deleteAvailabilityBlock(blockId);
-      if (providerId && form.siteId) {
-        await refreshBlocks(form.siteId);
+      if (providerId) {
+        await refreshBlocks();
       }
     } catch (error) {
       setActionError(getErrorMessage(error, "Could not delete block."));
@@ -429,8 +474,8 @@ export default function ProviderAvailability() {
     try {
       setActionError(null);
       await activateAvailabilityBlock(blockId);
-      if (form.siteId) {
-        await refreshBlocks(form.siteId);
+      if (providerId) {
+        await refreshBlocks();
       }
     } catch (error) {
       setActionError(getErrorMessage(error, "Could not activate block."));
@@ -438,6 +483,7 @@ export default function ProviderAvailability() {
   };
 
   const viewBlockRow = (block: AvailabilityBlockDto) => {
+    setForm((prev) => ({ ...prev, siteId: block.siteId }));
     setBlockModalMode("view");
     setSelectedBlockId(block.blockId);
     setBlockDate(block.date);
@@ -448,6 +494,7 @@ export default function ProviderAvailability() {
   };
 
   const editBlockRow = (block: AvailabilityBlockDto) => {
+    setForm((prev) => ({ ...prev, siteId: block.siteId }));
     setBlockModalMode("edit");
     setSelectedBlockId(block.blockId);
     setBlockDate(block.date);
@@ -518,7 +565,12 @@ export default function ProviderAvailability() {
       <div className="bg-card rounded-xl border border-border">
         {activeTab === "templates" && (
         <div className="p-5 border-b border-border flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground">Weekly Templates</p>
+          <div>
+            <p className="text-sm font-medium text-foreground">Weekly Templates</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Demo mode: slot generation is intentionally fixed to 14 days for stability.
+            </p>
+          </div>
           <button
             onClick={openCreateTemplateModal}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
@@ -553,9 +605,10 @@ export default function ProviderAvailability() {
                   </button>
                   <button
                     onClick={() => handleGenerateSlots(template.id, templates.find((t) => t.templateId === template.id)?.siteId ?? form.siteId)}
+                    disabled={generatingTemplateId === template.id}
                     className="ml-2 px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary"
                   >
-                    Generate Slots
+                    {generatingTemplateId === template.id ? "Generating..." : "Generate Slots"}
                   </button>
                 </div>
               </div>
@@ -569,20 +622,32 @@ export default function ProviderAvailability() {
             <div className="mb-3 max-w-xs">
               <label className="block text-xs text-muted-foreground mb-1">Site</label>
               <select
-                value={form.siteId}
+                value={blockSiteFilter}
                 onChange={(e) => {
-                  const siteId = Number(e.target.value);
-                  setForm((prev) => ({ ...prev, siteId }));
-                  void refreshBlocks(siteId);
+                  const value = e.target.value;
+                  setBlockSiteFilter(value);
+                  if (value !== "All") {
+                    setForm((prev) => ({ ...prev, siteId: Number(value) }));
+                  }
                 }}
                 className="w-full px-3 py-2 rounded border border-border bg-input-background text-sm"
               >
+                <option value="All">All Sites</option>
                 {sites.map((site) => (
                   <option key={site.siteId} value={site.siteId}>
                     {site.name}
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="mb-3 max-w-xs">
+              <label className="block text-xs text-muted-foreground mb-1">Date</label>
+              <input
+                type="date"
+                value={blockDateFilter}
+                onChange={(e) => setBlockDateFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded border border-border bg-input-background text-sm"
+              />
             </div>
             <button
               onClick={openBlockModal}
@@ -591,12 +656,13 @@ export default function ProviderAvailability() {
               Add Block
             </button>
             <div className="space-y-2">
-              {blocks.map((b) => (
+              {filteredBlocks.map((b) => (
                 <div key={b.blockId} className="flex items-center justify-between p-2 rounded border border-border">
                   <div>
                     <p className="text-xs text-muted-foreground">
                       {b.date} {b.startTime}-{b.endTime} ({b.reason || "Provider block"})
                     </p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">Site: {siteNameById.get(b.siteId) ?? `Site ${b.siteId}`}</p>
                     <p className="text-xs mt-0.5 text-foreground">Status: {b.status}</p>
                   </div>
                   <div className="flex gap-2">

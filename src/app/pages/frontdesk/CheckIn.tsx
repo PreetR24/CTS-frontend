@@ -13,14 +13,6 @@ type AppointmentRow = {
   service: string;
 };
 
-function to12Hour(time24: string): string {
-  const [h, m] = time24.split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return time24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour = h % 12 || 12;
-  return `${hour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} ${suffix}`;
-}
-
 export default function FrontDeskCheckIn() {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
   const [userNames, setUserNames] = useState<Map<number, string>>(new Map());
@@ -57,7 +49,7 @@ export default function FrontDeskCheckIn() {
   const todayAppointments: AppointmentRow[] = appointments.map((apt) => ({
     id: apt.appointmentId,
     patientName: userNames.get(apt.patientId) ?? "Unknown Patient",
-    time: to12Hour(apt.startTime),
+    time: apt.startTime,
     provider: providerNames.get(apt.providerId) ?? "Unknown Provider",
     service: serviceNames.get(apt.serviceId) ?? "Unknown Service",
   }));

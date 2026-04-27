@@ -122,7 +122,7 @@ export default function AdminAudit() {
               filteredRows.map((r) => (
                 <tr key={r.auditId} className="border-b border-border last:border-0">
                   <td className="py-3 px-4 text-sm text-foreground">{r.auditId}</td>
-                  <td className="py-3 px-4 text-sm text-muted-foreground">{r.userName ?? "-"}</td>
+                  <td className="py-3 px-4 text-sm text-muted-foreground">{r.userName?.trim() || (r.userId != null ? `User ${r.userId}` : "-")}</td>
                   <td className="py-3 px-4 text-sm text-foreground">{r.action}</td>
                   <td className="py-3 px-4 text-sm text-muted-foreground">{r.resource}</td>
                   <td className="py-3 px-4 text-sm text-muted-foreground">{r.timestamp}</td>

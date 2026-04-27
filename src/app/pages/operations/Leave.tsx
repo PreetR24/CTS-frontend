@@ -4,7 +4,49 @@ import { isAxiosError } from "axios";
 import { approveLeave, rejectLeave, searchLeaveRequests, type LeaveRequestDto } from "../../../api/operationsApi";
 import { fetchUsers, type UserDto } from "../../../api/usersApi";
 import { resolveLeaveImpact, searchLeaveImpactsByLeaveId } from "../../../api/operationsPlanningApi";
+import { getAppointmentById, type AppointmentDto } from "../../../api/appointmentsApi";
+import { fetchServices, type ServiceDto } from "../../../api/masterdataApi";
 import { meApi } from "../../../api/authApi";
+
+type ImpactAppointmentRow = {
+  appointmentId: number;
+  patientName: string;
+  slotTime: string;
+  serviceName: string;
+  visitType: string;
+};
+
+type LeaveImpactDetailRow = {
+  impactId: number;
+  impactType: string;
+  status: string;
+  resolvedDate: string | null;
+  appointments: ImpactAppointmentRow[];
+};
+
+function parseAppointmentIds(impactJson: string | null): number[] {
+  if (!impactJson) return [];
+  try {
+    const parsed = JSON.parse(impactJson) as { appointmentIds?: unknown };
+    if (!Array.isArray(parsed.appointmentIds)) return [];
+    return parsed.appointmentIds
+      .filter((id): id is number => typeof id === "number" && Number.isInteger(id))
+      .filter((id, idx, arr) => arr.indexOf(id) === idx);
+  } catch {
+    return [];
+  }
+}
+
+function toImpactAppointmentRow(appointment: AppointmentDto, services: Map<number, ServiceDto>): ImpactAppointmentRow {
+  const service = services.get(appointment.serviceId);
+  return {
+    appointmentId: appointment.appointmentId,
+    patientName: appointment.patientName?.trim() || `Patient ${appointment.patientId}`,
+    slotTime: `${appointment.slotDate} ${appointment.startTime}-${appointment.endTime}`,
+    serviceName: appointment.serviceName?.trim() || service?.name || `Service ${appointment.serviceId}`,
+    visitType: service?.visitType || "N/A",
+  };
+}
 
 export default function OperationsLeave() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestDto[]>([]);
@@ -14,9 +56,8 @@ export default function OperationsLeave() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detailLeave, setDetailLeave] = useState<LeaveRequestDto | null>(null);
-  const [detailImpacts, setDetailImpacts] = useState<
-    Array<{ impactId: number; impactType: string; status: string; resolvedDate: string | null }>
-  >([]);
+  const [detailImpacts, setDetailImpacts] = useState<LeaveImpactDetailRow[]>([]);
+  const [serviceById, setServiceById] = useState<Map<number, ServiceDto>>(new Map());
   const [statusFilter, setStatusFilter] = useState("All");
   const [nurseFilter, setNurseFilter] = useState("");
 
@@ -49,6 +90,10 @@ export default function OperationsLeave() {
         if (cancelled) return;
         setLeaveRequests(leaveList);
         setUserNames(new Map(users.map((u) => [u.userId, u.name])));
+        const services = await fetchServices().catch(() => [] as ServiceDto[]);
+        if (!cancelled) {
+          setServiceById(new Map(services.map((service) => [service.serviceId, service])));
+        }
         const impactLists = await Promise.all(
           leaveList.map((l) => searchLeaveImpactsByLeaveId(l.leaveId).catch(() => []))
         );
@@ -222,15 +267,29 @@ export default function OperationsLeave() {
                               setError(null);
                               const detail = leaveRequests.find((x) => x.leaveId === leave.id) ?? null;
                               const impacts = await searchLeaveImpactsByLeaveId(leave.id);
-                              setDetailLeave(detail);
-                              setDetailImpacts(
-                                impacts.map((x) => ({
-                                  impactId: x.impactId,
-                                  impactType: x.impactType,
-                                  status: x.status,
-                                  resolvedDate: x.resolvedDate,
-                                }))
+                              const enrichedImpacts = await Promise.all(
+                                impacts.map(async (x) => {
+                                  const appointmentIds = parseAppointmentIds(x.impactJson);
+                                  const appointments = (
+                                    await Promise.all(
+                                      appointmentIds.map((appointmentId) =>
+                                        getAppointmentById(appointmentId).catch(() => null)
+                                      )
+                                    )
+                                  )
+                                    .filter((a): a is AppointmentDto => a != null)
+                                    .map((a) => toImpactAppointmentRow(a, serviceById));
+                                  return {
+                                    impactId: x.impactId,
+                                    impactType: x.impactType,
+                                    status: x.status,
+                                    resolvedDate: x.resolvedDate,
+                                    appointments,
+                                  };
+                                })
                               );
+                              setDetailLeave(detail);
+                              setDetailImpacts(enrichedImpacts);
                             } catch (e) {
                               setError(getErrorMessage(e, "Could not load leave details."));
                             }
@@ -245,15 +304,29 @@ export default function OperationsLeave() {
                               try {
                                 setError(null);
                                 const impacts = await searchLeaveImpactsByLeaveId(leave.id);
-                                setDetailLeave(leaveRequests.find((x) => x.leaveId === leave.id) ?? null);
-                                setDetailImpacts(
-                                  impacts.map((x) => ({
-                                    impactId: x.impactId,
-                                    impactType: x.impactType,
-                                    status: x.status,
-                                    resolvedDate: x.resolvedDate,
-                                  }))
+                                const enrichedImpacts = await Promise.all(
+                                  impacts.map(async (x) => {
+                                    const appointmentIds = parseAppointmentIds(x.impactJson);
+                                    const appointments = (
+                                      await Promise.all(
+                                        appointmentIds.map((appointmentId) =>
+                                          getAppointmentById(appointmentId).catch(() => null)
+                                        )
+                                      )
+                                    )
+                                      .filter((a): a is AppointmentDto => a != null)
+                                      .map((a) => toImpactAppointmentRow(a, serviceById));
+                                    return {
+                                      impactId: x.impactId,
+                                      impactType: x.impactType,
+                                      status: x.status,
+                                      resolvedDate: x.resolvedDate,
+                                      appointments,
+                                    };
+                                  })
                                 );
+                                setDetailLeave(leaveRequests.find((x) => x.leaveId === leave.id) ?? null);
+                                setDetailImpacts(enrichedImpacts);
                               } catch (e) {
                                 setError(getErrorMessage(e, "Could not load impact details."));
                               }
@@ -340,6 +413,30 @@ export default function OperationsLeave() {
                   <p className="text-xs text-muted-foreground">
                     {impact.impactType} - {impact.status} - Resolved: {impact.resolvedDate ?? "No"}
                   </p>
+                  {impact.appointments.length > 0 && (
+                    <div className="mt-2 rounded border border-border overflow-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-muted/30 border-b border-border">
+                            <th className="text-left py-1.5 px-2 text-xs font-medium text-muted-foreground">Patient</th>
+                            <th className="text-left py-1.5 px-2 text-xs font-medium text-muted-foreground">Slot Time</th>
+                            <th className="text-left py-1.5 px-2 text-xs font-medium text-muted-foreground">Service</th>
+                            <th className="text-left py-1.5 px-2 text-xs font-medium text-muted-foreground">Visit Type</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {impact.appointments.map((appointment) => (
+                            <tr key={`${impact.impactId}-${appointment.appointmentId}`} className="border-b border-border last:border-0">
+                              <td className="py-1.5 px-2 text-xs text-foreground">{appointment.patientName}</td>
+                              <td className="py-1.5 px-2 text-xs text-muted-foreground">{appointment.slotTime}</td>
+                              <td className="py-1.5 px-2 text-xs text-muted-foreground">{appointment.serviceName}</td>
+                              <td className="py-1.5 px-2 text-xs text-muted-foreground">{appointment.visitType}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                   {impact.status.toLowerCase() !== "resolved" && (
                     <button
                       className="mt-2 px-3 py-1 rounded border border-border text-xs hover:bg-secondary"
@@ -349,14 +446,28 @@ export default function OperationsLeave() {
                           const me = await meApi();
                           await resolveLeaveImpact(impact.impactId, me.userId);
                           const impacts = await searchLeaveImpactsByLeaveId(detailLeave.leaveId);
-                          setDetailImpacts(
-                            impacts.map((x) => ({
-                              impactId: x.impactId,
-                              impactType: x.impactType,
-                              status: x.status,
-                              resolvedDate: x.resolvedDate,
-                            }))
+                          const enrichedImpacts = await Promise.all(
+                            impacts.map(async (x) => {
+                              const appointmentIds = parseAppointmentIds(x.impactJson);
+                              const appointments = (
+                                await Promise.all(
+                                  appointmentIds.map((appointmentId) =>
+                                    getAppointmentById(appointmentId).catch(() => null)
+                                  )
+                                )
+                              )
+                                .filter((a): a is AppointmentDto => a != null)
+                                .map((a) => toImpactAppointmentRow(a, serviceById));
+                              return {
+                                impactId: x.impactId,
+                                impactType: x.impactType,
+                                status: x.status,
+                                resolvedDate: x.resolvedDate,
+                                appointments,
+                              };
+                            })
                           );
+                          setDetailImpacts(enrichedImpacts);
                           await refresh();
                           setNotice(`Impact #${impact.impactId} resolved.`);
                         } catch (e) {

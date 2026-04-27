@@ -364,7 +364,10 @@ export default function AdminUsers() {
                     <input
                       type="text"
                       placeholder="e.g., Cardiology"
-                      {...registerCreate("specialty")}
+                      {...registerCreate("specialty", {
+                        validate: (value) =>
+                          createRole !== "Provider" || value.trim().length > 0 || "Specialty is required for Provider.",
+                      })}
                       className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
@@ -373,10 +376,15 @@ export default function AdminUsers() {
                     <input
                       type="text"
                       placeholder="e.g., MBBS, MD"
-                      {...registerCreate("credentials")}
+                      {...registerCreate("credentials", {
+                        validate: (value) =>
+                          createRole !== "Provider" || value.trim().length > 0 || "Credentials are required for Provider.",
+                      })}
                       className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
+                  {createErrors.specialty && <p className="text-xs text-destructive mt-1">{createErrors.specialty.message}</p>}
+                  {createErrors.credentials && <p className="text-xs text-destructive mt-1">{createErrors.credentials.message}</p>}
                 </>
               )}
               <div>
@@ -402,8 +410,8 @@ export default function AdminUsers() {
                   placeholder="+91 XXXXX XXXXX"
                   {...registerCreate("phone", {
                     pattern: {
-                      value: /^[0-9+\-\s()]*$/,
-                      message: "Phone can contain digits and + - ( ) only.",
+                      value: /^\d{10}$/,
+                      message: "Phone number must be exactly 10 digits.",
                     },
                   })}
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -462,8 +470,8 @@ export default function AdminUsers() {
                 type="text"
                 {...registerEdit("phone", {
                   pattern: {
-                    value: /^[0-9+\-\s()]*$/,
-                    message: "Phone can contain digits and + - ( ) only.",
+                    value: /^\d{10}$/,
+                    message: "Phone number must be exactly 10 digits.",
                   },
                 })}
                 className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
