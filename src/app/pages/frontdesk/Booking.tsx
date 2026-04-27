@@ -19,6 +19,13 @@ import { createCharge, searchCharges } from "../../../api/frontdeskBillingApi";
 
 type BookingProvider = { id: number; name: string; specialty: string };
 
+function toLocalSlotStart(slot: SlotDto): Date {
+  const dt = new Date(`${slot.slotDate}T00:00:00`);
+  const [h, m] = slot.startTime.split(":").map(Number);
+  dt.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return dt;
+}
+
 export default function FrontDeskBooking() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -114,7 +121,11 @@ export default function FrontDeskBooking() {
           date: selectedDate,
         });
         if (!cancelled) {
-          setAvailableSlots(slots.filter((s) => s.status.toLowerCase() === "open"));
+          const now = new Date();
+          now.setSeconds(0, 0);
+          setAvailableSlots(
+            slots.filter((s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= now)
+          );
         }
       } catch (error) {
         if (!cancelled) {

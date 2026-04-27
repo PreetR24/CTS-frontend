@@ -152,7 +152,7 @@ export default function FrontDeskDashboard() {
               <div key={apt.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-secondary/30 transition-colors">
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-primary-foreground bg-primary/20 px-2 py-1 rounded">{apt.time}</span>
+                    <span className="text-xs font-semibold text-foreground bg-primary/30 px-2 py-1 rounded border border-primary/30">{apt.time}</span>
                     <div>
                       <p className="text-sm font-medium text-foreground">{apt.patientName}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">{apt.service} • {apt.provider}</p>

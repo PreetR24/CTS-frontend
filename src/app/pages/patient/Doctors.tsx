@@ -11,6 +11,13 @@ type DoctorsFilterFormValues = {
   date: string;
 };
 
+function toLocalSlotStart(slot: SlotDto): Date {
+  const dt = new Date(`${slot.slotDate}T00:00:00`);
+  const [h, m] = slot.startTime.split(":").map(Number);
+  dt.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return dt;
+}
+
 export default function PatientDoctors() {
   const [providers, setProviders] = useState<ProviderDto[]>([]);
   const [services, setServices] = useState<ServiceDto[]>([]);
@@ -98,7 +105,8 @@ export default function PatientDoctors() {
               siteId: Number(nextSiteId),
               date: nextDate,
             });
-            return open.filter((s) => s.status.toLowerCase() === "open");
+            const minStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+            return open.filter((s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart);
           } catch {
             return [] as SlotDto[];
           }
@@ -120,7 +128,8 @@ export default function PatientDoctors() {
           siteId: Number(nextSiteId),
           date: nextDate,
         });
-        setSlots(data);
+        const minStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        setSlots(data.filter((s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart));
       }
     } finally {
       setLoadingDoctors(false);
@@ -137,7 +146,8 @@ export default function PatientDoctors() {
         siteId: Number(siteId),
         date,
       });
-      setSlots(data);
+      const minStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      setSlots(data.filter((s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart));
     } catch (error) {
       const msg = isAxiosError<{ message?: string }>(error)
         ? error.response?.data?.message

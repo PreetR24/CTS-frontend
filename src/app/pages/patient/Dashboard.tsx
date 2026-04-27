@@ -110,7 +110,7 @@ export default function PatientDashboard() {
                     {apt.status}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">{apt.date} at {apt.time} • {apt.site}</p>
+                <p className="text-xs text-foreground/80">{apt.date} at <span className="font-semibold text-foreground">{apt.time}</span> • {apt.site}</p>
               </div>
             ))}
             {myAppointments.length === 0 && (

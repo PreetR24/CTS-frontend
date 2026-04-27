@@ -4,11 +4,15 @@ import { useForm } from "react-hook-form";
 import { isAxiosError } from "axios";
 import {
   getAppointmentById,
-  markAppointmentCompleted,
   searchAppointments,
   type AppointmentDto,
 } from "../../../api/appointmentsApi";
-import { createOutcome, getOutcomeByAppointment, type OutcomeDto } from "../../../api/outcomesApi";
+import {
+  createOutcome,
+  getOutcomeByAppointment,
+  uploadOutcomePrescription,
+  type OutcomeDto,
+} from "../../../api/outcomesApi";
 import { meApi } from "../../../api/authApi";
 
 type AppointmentRow = {
@@ -30,10 +34,6 @@ function to12Hour(time24: string): string {
 }
 
 export default function ProviderAppointments() {
-  const canComplete = (status: string) => {
-    const normalized = status.trim().toLowerCase();
-    return normalized === "booked" || normalized === "checkedin";
-  };
   const canAddOutcome = (status: string) => status.trim().toLowerCase() === "completed";
 
   const [appointments, setAppointments] = useState<AppointmentDto[]>([]);
@@ -42,6 +42,7 @@ export default function ProviderAppointments() {
   const [selectedDetails, setSelectedDetails] = useState<AppointmentDto | null>(null);
   const [outcomeAppointmentId, setOutcomeAppointmentId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
   const { register, handleSubmit, reset, formState: { errors } } = useForm<{ clinicalNotes: string; treatmentPlan: string }>({
     defaultValues: { clinicalNotes: "", treatmentPlan: "" },
   });
@@ -126,24 +127,7 @@ export default function ProviderAppointments() {
     }
     setOutcomeAppointmentId(appointmentId);
     reset({ clinicalNotes: "", treatmentPlan: "" });
-  };
-
-  const markCompleted = async (appointmentId: number) => {
-    const current = appointments.find((a) => a.appointmentId === appointmentId);
-    if (!current || !canComplete(current.status)) {
-      setActionError("Only Booked or CheckedIn appointments can be completed.");
-      return;
-    }
-    try {
-      setActionError(null);
-      await markAppointmentCompleted(appointmentId);
-      if (providerId != null) {
-        const refreshed = await searchAppointments({ providerId });
-        setAppointments(refreshed);
-      }
-    } catch (error) {
-      setActionError(getErrorMessage(error, "Could not complete appointment."));
-    }
+    setPrescriptionFile(null);
   };
 
   const closeDetailsModal = () => setSelectedDetails(null);
@@ -163,6 +147,9 @@ export default function ProviderAppointments() {
         notes: notes || undefined,
         markedBy: providerId ?? undefined,
       });
+      if (prescriptionFile) {
+        await uploadOutcomePrescription(outcomeAppointmentId, prescriptionFile);
+      }
       const savedOutcome = await getOutcomeByAppointment(outcomeAppointmentId);
       if (savedOutcome) {
         setOutcomesByAppointmentId((prev) => ({ ...prev, [outcomeAppointmentId]: savedOutcome }));
@@ -233,14 +220,6 @@ export default function ProviderAppointments() {
                     >
                       View Details
                     </button>
-                    {canComplete(apt.status) && (
-                      <button
-                        onClick={() => void markCompleted(apt.id)}
-                        className="ml-2 px-3 py-1.5 rounded-lg bg-[#95d4a8] text-white text-xs"
-                      >
-                        Mark Completed
-                      </button>
-                    )}
                     {canAddOutcome(apt.status) && !outcomesByAppointmentId[apt.id] && (
                       <button
                         onClick={() => openOutcomeModal(apt.id)}
@@ -324,6 +303,15 @@ export default function ProviderAppointments() {
                   className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 {errors.treatmentPlan && <p className="text-xs text-destructive mt-1">{errors.treatmentPlan.message}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Prescription (single file)</label>
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  onChange={(e) => setPrescriptionFile(e.target.files?.[0] ?? null)}
+                  className="w-full px-3 py-2 rounded-lg bg-input-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
               </div>
               {(errors.clinicalNotes || errors.treatmentPlan) && (
                 <p className="text-xs text-destructive">Please correct form errors.</p>

@@ -13,7 +13,11 @@ import {
 import { meApi } from "../../../api/authApi";
 import { fetchProviders, fetchServices, fetchSites, type ProviderDto, type ServiceDto, type SiteDto } from "../../../api/masterdataApi";
 import { searchOpenSlots, type SlotDto } from "../../../api/slotsApi";
-import { getOutcomeByAppointment, type OutcomeDto } from "../../../api/outcomesApi";
+import {
+  downloadOutcomePrescription,
+  getOutcomeByAppointment,
+  type OutcomeDto,
+} from "../../../api/outcomesApi";
 
 type AppointmentRow = {
   id: number;
@@ -38,6 +42,13 @@ function to12Hour(time24: string): string {
   const suffix = h >= 12 ? "PM" : "AM";
   const hour = h % 12 || 12;
   return `${hour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} ${suffix}`;
+}
+
+function toLocalSlotStart(slot: SlotDto): Date {
+  const dt = new Date(`${slot.slotDate}T00:00:00`);
+  const [h, m] = slot.startTime.split(":").map(Number);
+  dt.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return dt;
 }
 
 export default function PatientAppointments() {
@@ -192,7 +203,10 @@ export default function PatientAppointments() {
 
   const loadSlotsForBooking = async (providerId: number, serviceId: number, siteId: number, date: string) => {
     const slots = await searchOpenSlots({ providerId, serviceId, siteId, date });
-    const open = slots.filter((s) => s.status.toLowerCase() === "open");
+    const minStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const open = slots.filter(
+      (s) => s.status.toLowerCase() === "open" && toLocalSlotStart(s) >= minStart
+    );
     setSlotOptions(open);
     setBookValue("slotId", String(open[0]?.pubSlotId ?? ""));
     setRescheduleValue("slotId", String(open[0]?.pubSlotId ?? ""));
@@ -253,6 +267,24 @@ export default function PatientAppointments() {
     } catch (error) {
       const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
       setActionError(msg ?? "Could not reschedule appointment.");
+    }
+  };
+
+  const handleDownloadPrescription = async (appointmentId: number) => {
+    try {
+      setActionError(null);
+      const file = await downloadOutcomePrescription(appointmentId);
+      const url = URL.createObjectURL(file.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = file.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const msg = isAxiosError<{ message?: string }>(error) ? error.response?.data?.message : undefined;
+      setActionError(msg ?? "Could not download prescription.");
     }
   };
 
@@ -396,6 +428,14 @@ export default function PatientAppointments() {
                 Outcome: {outcomesByAppointmentId[apt.id].outcome}
                 {outcomesByAppointmentId[apt.id].notes ? ` - ${outcomesByAppointmentId[apt.id].notes}` : ""}
               </p>
+            )}
+            {apt.status === "Completed" && outcomesByAppointmentId[apt.id]?.hasPrescription && (
+              <button
+                onClick={() => void handleDownloadPrescription(apt.id)}
+                className="mb-3 px-3 py-2 rounded-lg border border-border text-sm hover:bg-secondary"
+              >
+                Download Prescription
+              </button>
             )}
             {(apt.status === "Booked" || apt.status === "CheckedIn" || apt.status === "Completed" || apt.status === "Cancelled" || apt.status === "NoShow") && (
               <div className="flex gap-2">

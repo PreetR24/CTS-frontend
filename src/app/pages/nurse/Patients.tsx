@@ -20,8 +20,7 @@ type QueueRow = {
 };
 
 function toLocalDateTime(value: string): string {
-  const hasZone = /z$|[+\-]\d{2}:\d{2}$/i.test(value);
-  const asDate = new Date(hasZone ? value : `${value}Z`);
+  const asDate = new Date(value);
   if (Number.isNaN(asDate.getTime())) return value;
   return asDate.toLocaleString();
 }

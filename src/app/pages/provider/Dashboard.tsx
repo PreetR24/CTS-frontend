@@ -174,7 +174,7 @@ export default function ProviderDashboard() {
                   <div>
                     <p className="text-sm font-medium text-foreground">{apt.patientName}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{apt.service}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{apt.time} • {apt.site}</p>
+                    <p className="text-xs text-foreground/80 mt-1"><span className="font-semibold text-foreground">{apt.time}</span> • {apt.site}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
