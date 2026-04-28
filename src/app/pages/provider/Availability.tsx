@@ -119,7 +119,8 @@ export default function ProviderAvailability() {
           }
           return;
         }
-        const siteList = await fetchSites({ page: 1, pageSize: 250 });
+        const siteList = (await fetchSites({ page: 1, pageSize: 250 }))
+          .filter((s) => s.status === "Active");
         if (cancelled) return;
         setProviderId(me.userId);
         setSites(siteList);
@@ -134,9 +135,7 @@ export default function ProviderAvailability() {
         const firstSiteId = siteList[0]?.siteId ?? 0;
         setForm((prev) => ({ ...prev, siteId: firstSiteId }));
 
-        const grouped = await Promise.all(
-          siteList.map((s) => fetchAvailabilityTemplates(me.userId, s.siteId))
-        );
+        const grouped = await Promise.all(siteList.map((s) => fetchAvailabilityTemplates(me.userId, s.siteId)));
         if (cancelled) return;
         setTemplates(grouped.flat());
         if (siteList.length > 0) {
@@ -164,6 +163,14 @@ export default function ProviderAvailability() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (sites.length === 0) return;
+    const siteExists = sites.some((s) => s.siteId === form.siteId);
+    if (!siteExists) {
+      setForm((prev) => ({ ...prev, siteId: sites[0].siteId }));
+    }
+  }, [sites, form.siteId]);
 
   const viewRows = templates.map((template) => ({
     id: template.templateId,

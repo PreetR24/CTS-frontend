@@ -3,6 +3,7 @@ import { Plus, Search, Edit, User } from "lucide-react";
 import { isAxiosError } from "axios";
 import { useForm } from "react-hook-form";
 import { mapUserRows, type AdminUserRow } from "../../../api/adminViewMappers";
+import { meApi } from "../../../api/authApi";
 import {
   activateUser,
   createUser,
@@ -23,6 +24,7 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const {
     register: registerCreate,
     handleSubmit: handleCreateSubmit,
@@ -47,8 +49,12 @@ export default function AdminUsers() {
       try {
         setLoading(true);
         setLoadError(null);
-        const userList = await fetchUsers({ page: 1, pageSize: 500 });
+        const [me, userList] = await Promise.all([
+          meApi().catch(() => null),
+          fetchUsers({ page: 1, pageSize: 500 }),
+        ]);
         if (!cancelled) {
+          setCurrentUserId(me?.userId ?? null);
           setRows(mapUserRows(userList));
         }
       } catch {
@@ -296,10 +302,11 @@ export default function AdminUsers() {
                       </button>
                       {user.status === "Active" ? (
                         <button
+                          disabled={currentUserId === user.id}
                           className="text-xs px-2 py-1 border border-border rounded text-destructive"
                           onClick={() => void deactivateUserRow(user.id)}
                         >
-                          Deactivate
+                          {currentUserId === user.id ? "Current Admin" : "Deactivate"}
                         </button>
                       ) : (
                         <button

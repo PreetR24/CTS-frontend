@@ -55,20 +55,35 @@ export default function Login() {
   };
 
   const handleSignup = async () => {
-    if (!signupName || !signupEmail) {
-      setError("Name and email are required for signup");
+    const name = signupName.trim();
+    const email = signupEmail.trim();
+    const phone = signupPhone.trim();
+    if (!name || !email || !phone) {
+      setError("Name, email and phone are required for signup");
       return;
     }
-    if (signupPhone && !/^\d{10}$/.test(signupPhone.trim())) {
+    if (name.length < 2) {
+      setError("Name must be at least 2 characters");
+      return;
+    }
+    if (!/^[A-Za-z][A-Za-z\s'.-]*$/.test(name)) {
+      setError("Name contains invalid characters");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Enter a valid email address");
+      return;
+    }
+    if (!/^\d{10}$/.test(phone)) {
       setError("Phone number must be exactly 10 digits");
       return;
     }
     try {
       setFormLoading(true);
       setError("");
-      await signupPatient({ name: signupName, email: signupEmail, phone: signupPhone || undefined });
+      await signupPatient({ name, email, phone });
       setShowSignup(false);
-      setEmail(signupEmail);
+      setEmail(email);
       setSelectedRole("Patient");
     } catch (err: any) {
       setError(err.response?.data?.message || "Signup failed");
